@@ -37,14 +37,18 @@ func TestEveryContractTypeIsProduced(t *testing.T) {
 	roots := make([]contractscan.Root, 0, len(siblings))
 	for _, svc := range siblings {
 		roots = append(roots, contractscan.Root{
-			Path:  svc.Root,
-			Base:  filepath.Base(svc.Root),
-			World: svc.Name,
+			Path: svc.Root,
+			// ⚠️ 按 **module path** 认树，不按目录名：CI 把仓 checkout 到
+			// 什么目录名是 CI 决定的（GitHub Actions 里可能是 `kit/`），
+			// 而 module path 才是树的身份。
+			Module: svc.ModulePath,
+			World:  svc.Name,
 		})
 	}
 	contractscan.CheckProduced(t, contractscan.Scope{
-		World:    "the kit",
-		RootBase: "jumpserver-mcp-kit",
+		World: "the kit",
+		// ⚠️ 同样是按 module path 认树（kit 仓自己的 module 根）。
+		Module: arch.ModuleKit,
 		// The producers are in the two service repositories.
 		Roots: roots,
 		// The generated file is not a reference to itself. legacy/ is a

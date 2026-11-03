@@ -11,7 +11,9 @@ package contractscan
 // — as the Scope it passes in.
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,7 +37,19 @@ type Scope struct {
 	// wrong tree: slow, and it would count somebody else's package as a
 	// producer (a contract that only the OTHER plane produces would look
 	// produced here too — the guard would pass for the wrong reason).
+	//
+	// ⚠️ 目录名只是**兜底**的认法：它认的是「这��目录该叫什么」，
+	// 而 CI 的 checkout 目录名是 CI 决定的 ⇒ 认树认 Module（module path）。
 	RootBase string
+
+	// Module is the module path the scan root must declare in its go.mod.
+	//
+	// ⚠️ 它**优先于** RootBase：module path 才是树的身份 —— 仓被 checkout 到
+	// 什么目录名、放在哪个盘符下，它都是同一个 module。
+	//
+	// ⚠️ 它只对**module 根**成立（根目录里有 go.mod）。服务仓的那份契约守卫
+	// 的根是 `biz/jumpserver` 这样的**子目录** ⇒ 那里用 RootBase。
+	Module string
 
 	// Roots are the EXTRA trees to scan, on top of this repository's own
 	// root (which is ../.. and is checked against RootBase).
@@ -79,7 +93,12 @@ type Root struct {
 	// one level too high would scan the wrong tree — and a contract that
 	// only another tree produces would look produced here too, so the
 	// guard would pass for the wrong reason.
+	//
+	// ⚠️ 兜底认法；优先用 Module（module path）—— 目录名是 CI 决定的。
 	Base string
+	// Module is the module path that directory must declare in its go.mod.
+	// It takes precedence over Base.
+	Module string
 	// World names the tree in the failure messages.
 	World string
 }
@@ -214,7 +233,7 @@ func (s Scope) referencedOutside(t *testing.T, declared []string) []string {
 }
 
 // scanRoots returns the trees to scan: this repository's own root (checked
-// against RootBase) plus the extra ones.
+// against RootBase / Module) plus the extra ones.
 //
 // ⚠️ The own root is checked because one level too high would scan the
 // wrong tree: slow, and it would count somebody else's package as a
@@ -226,23 +245,61 @@ func (s Scope) scanRoots(t *testing.T) []Root {
 	if err != nil {
 		t.Fatalf("abs the scan root: %v", err)
 	}
-	if got := filepath.Base(root); got != s.RootBase {
-		t.Fatalf("the scan root is %s, not %s: this directory "+
-			"moved, and the guard would be looking at the wrong tree", root, s.World)
-	}
-	out := []Root{{Path: root, Base: s.RootBase, World: s.World}}
+	assertTree(t, root, s.RootBase, s.Module, s.World)
+	out := []Root{{Path: root, Base: s.RootBase, Module: s.Module, World: s.World}}
 	for _, extra := range s.Roots {
 		p, err := filepath.Abs(extra.Path)
 		if err != nil {
 			t.Fatalf("abs the scan root %s: %v", extra.Path, err)
 		}
-		if extra.Base != "" {
-			if got := filepath.Base(p); got != extra.Base {
-				t.Fatalf("the scan root is %s, not %s: this directory "+
-					"moved, and the guard would be looking at the wrong tree", p, extra.Base)
-			}
-		}
-		out = append(out, Root{Path: p, Base: extra.Base, World: extra.World})
+		assertTree(t, p, extra.Base, extra.Module, extra.World)
+		out = append(out, Root{Path: p, Base: extra.Base, Module: extra.Module, World: extra.World})
 	}
 	return out
+}
+
+// assertTree says which tree this directory is — and refuses it if it isn't.
+//
+// ⚠️ **目录名不是树的身份**：CI 把仓 checkout 到什么目录名是 CI 决定的
+// （GitHub Actions 里有同名仓，也有把 kit checkout 成 `kit/` 的），
+// 而目录名一变守卫就报「这个目录搬走了」—— 一次与契约毫无关系的红。
+// ⇒ 认树认 **module path**（go.mod 里那一行）：那是树的身份，搬到哪里都一样。
+//
+// ⚠️ 但**服务仓的守卫根不是 module 根**（它是 `biz/jumpserver` 这种子目录），
+// 那里没有 go.mod ⇒ 那种树仍然按目录基名认（RootBase）。
+func assertTree(t *testing.T, path, base, module, world string) {
+	t.Helper()
+	if module != "" {
+		got := moduleOf(t, path)
+		if got != module {
+			t.Fatalf("the scan root is %s, but its go.mod declares module %s, not %s: "+
+				"this is the wrong tree, and the guard would be looking at the wrong world (%s)",
+				path, got, module, world)
+		}
+		return
+	}
+	if base == "" {
+		return
+	}
+	if got := filepath.Base(path); got != base {
+		t.Fatalf("the scan root is %s, not %s: this directory "+
+			"moved, and the guard would be looking at the wrong tree", path, base)
+	}
+}
+
+// moduleOf 读一个目录的 go.mod 里声明的 module path。
+func moduleOf(t *testing.T, dir string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Join(dir, "go.mod"), err)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) >= 2 && fields[0] == "module" {
+			return fields[1]
+		}
+	}
+	t.Fatalf("%s declares no module path: the scan root is not a module root", dir)
+	return ""
 }
