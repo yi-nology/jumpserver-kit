@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# GOPRIVATE:github.com/oagentkit/* —— 自家模块系列(guardx 等)不走公开代理与
+# checksum DB,直接从 GitHub 取。前提与解封条件见 ci.yml 同名注释。
+env:
+  GOPRIVATE: github.com/oagentkit/*
+
+jobs:
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # ⚠️ fetch-depth: 0 —— 要拿完整的 tag 历史（算上一个版本、拼变更清单）。
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout management plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-mcp
+          path: jumpserver-mcp
+          persist-credentials: false
+
+      - name: Checkout execution plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-mcp-exec
+          path: jumpserver-mcp-exec
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: kit/go.mod
+
+      - name: Run vet
+        working-directory: kit
+        run: go vet ./...
+
+      - name: Run tests
+        working-directory: kit
+        env:
+          # ⚠️ 跨仓守卫要三棵树同时在手 ⇒ 缺兄弟仓时它会**跳过**，
+          #   而跳过 ≠ 通过 ⇒ 这里要求它不许跳过。
+          JMS_REQUIRE_SIBLINGS: "1"
+          JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mcp:${{ github.workspace }}/jumpserver-mcp-exec
+        run: go test -v ./...
+
+  publish:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG="Initial release"
+          else
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          generate_release_notes: true
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## 这是一个**库**，不是可执行程序
+
+            本仓没有二进制，也没有产物附件 —— 它是 Go 模块：
+
+            ```
+            go get github.com/yi-nology/jumpserver-mcp-kit@latest
+            ```
+
+            两个服务仓（[管理面](https://github.com/yi-nology/jumpserver-mcp) /
+            [执行面](https://github.com/yi-nology/jumpserver-mcp-exec)）`require` 它。
+
+            ⚠️ **发版节奏**：底座是**承诺** ⇒ 改底座先发底座的 tag，
+            再更新两个服务仓的 `require`，最后才发两个服务。
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
