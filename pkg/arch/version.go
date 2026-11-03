@@ -102,6 +102,12 @@ func CheckCapabilityVocabulary(t *testing.T, root, modulePath string) {
 		// 来查。服务仓里没有那份声明，在那里查它只会得到「函数不存在」
 		// 这种假失败（函数在 kit 的 pkg/jmsapi 里）。
 		checkWatchListNamesRealFunctions(t, root)
+	} else if hasProtocolLayer(t, root, modulePath) {
+		// ⚠️ 这棵树**有**协议层，却没找到那份声明 ⇒ 守卫自己坏了。
+		//    报绿的话，改掉 pkg/jmsapi 的状态词都不会有人听见。
+		t.Errorf("the protocol layer is here (%s/pkg/jmsapi) but capability.go was not found: "+
+			"the guard would check nothing, and it would say so in a log line nobody reads",
+			modulePath)
 	} else {
 		t.Logf("this repository has no protocol layer (%s/pkg/jmsapi): the capability "+
 			"vocabulary is declared in the kit, and this guard checks it there",
@@ -109,6 +115,9 @@ func CheckCapabilityVocabulary(t *testing.T, root, modulePath string) {
 	}
 	if f, ok := protocolLayerFile(t, root, modulePath, "version.go"); ok {
 		checkReleaseVocabulary(t, f)
+	} else if hasProtocolLayer(t, root, modulePath) {
+		t.Errorf("the protocol layer is here (%s/pkg/jmsapi) but version.go was not found: "+
+			"the release vocabulary would not be checked at all", modulePath)
 	}
 	checkCapabilityGates(t, root)
 }
@@ -760,11 +769,31 @@ func constNames(t *testing.T, path string) map[string]bool {
 // 判据的一部分（服务仓里没有协议层，kit 里才有）。
 func protocolLayerFile(t *testing.T, root, modulePath, name string) (string, bool) {
 	t.Helper()
-	want := modulePath + "/pkg/jmsapi/" + name
+	// ⚠️ ImportPathOf **去掉 .go 后缀**（它给的是「读者会写的那个导入路径」，
+	//    而导入路径不带文件名后缀）⇒ 拿带 .go 的名字去比，**永远不等**。
+	//    ⚠️ 这不是笔误级别的事：它让下面三条检查**从不执行**，
+	//    而守卫仍然报绿 —— 改名 pkg/jmsapi 的状态词都不会有人听见。
+	want := modulePath + "/pkg/jmsapi/" + strings.TrimSuffix(name, ".go")
 	for _, f := range goFilesOrFatal(t, root) {
 		if ImportPathOf(modulePath, root, f) == want {
 			return f, true
 		}
 	}
 	return "", false
+}
+
+// hasProtocolLayer 报告这棵树里**有没有**协议层。
+//
+// ⚠️ 它是为了把两种「找不到」分开：
+//   - 这棵树**真的没有**协议层（服务仓）⇒ 那三条检查不在这儿跑，正常；
+//   - 这棵树**有**协议层（底座）却没找到那个文件 ⇒ **守卫出了故障**，
+//     它该红，而不是在日志里说一句没人看的话。
+func hasProtocolLayer(t *testing.T, root, modulePath string) bool {
+	prefix := modulePath + "/pkg/jmsapi/"
+	for _, f := range goFilesOrFatal(t, root) {
+		if strings.HasPrefix(ImportPathOf(modulePath, root, f), prefix) {
+			return true
+		}
+	}
+	return false
 }

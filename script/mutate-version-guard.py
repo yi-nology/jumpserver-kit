@@ -98,25 +98,26 @@ def _doctor_file():
 
 
 def _guard_file():
-    """守卫文件住在哪个仓。
+    """守卫的**体**住在哪个仓。
 
-    ⚠️ internal/arch/ 在几个仓里都可能存在 ⇒ 按「谁声明了这条测试」来找，
-    不靠猜（猜错了就是在错的代码上跑，而那看起来跟「守卫是假的」一样）。
+    ⚠️ 拆成三个仓之后，守卫的体搬进了**底座**（pkg/arch/version.go），
+    三个仓的 internal/arch/ 只是**判据**（薄壳）⇒ 按「谁声明了
+    checkCapabilityGates」来找，不靠猜（猜错了就是在错的代码上跑，
+    而那看起来跟「守卫是假的」一样）。
     """
-    needle = "func TestADelegationCallSiteConsultsTheVersion("
+    needle = "func checkCapabilityGates("
     hits = []
     for r in ROOTS:
-        p = os.path.join(r, "internal", "arch", "version_test.go")
+        p = os.path.join(r, "pkg", "arch", "version.go")
         if os.path.exists(p):
             with open(p, encoding="utf-8", errors="replace") as f:
                 if needle in f.read():
                     hits.append(p)
     if not hits:
         raise SystemExit(
-            "⚠️  工作集里找不到声明 TestADelegationCallSiteConsultsTheVersion 的 "
-            "internal/arch/version_test.go（守卫还没迁过来？）")
+            "⚠️  工作集里找不到底座的 pkg/arch/version.go（守卫的体还没迁过来？）")
     if len(hits) > 1:
-        raise SystemExit("⚠️  守卫文件在多个仓里都有：%s ⇒ 不猜" % ", ".join(hits))
+        raise SystemExit("⚠️  守卫的体在多个仓里都有：%s ⇒ 不猜" % ", ".join(hits))
     return hits[0]
 
 
@@ -127,7 +128,7 @@ D = os.path.dirname(_doctor_file())
 
 handler = open(f"{H}/delegation.go").read()
 token = open(f"{K}/token.go").read()
-guard = open(f"{A}/version_test.go").read()
+guard = open(f"{A}/version.go").read()
 doctor = open(f"{D}/doctor.go").read()
 
 # SOURCES is the snapshot every mutation was built FROM — the source as it
@@ -135,12 +136,12 @@ doctor = open(f"{D}/doctor.go").read()
 SOURCES = {
     f"{H}/delegation.go": handler,
     f"{K}/token.go": token,
-    f"{A}/version_test.go": guard,
+    f"{A}/version.go": guard,
     f"{D}/doctor.go": doctor,
 }
 
-# REPO is the copy of the repository that holds the guard.
-REPO = os.path.join(WS, os.path.basename(workset.repo_of(f"{A}/version_test.go", ROOTS)))
+# KIT_REPO is the copy of the repository that holds the guard's BODY.
+KIT_REPO = os.path.join(WS, os.path.basename(workset.repo_of(f"{A}/version.go", ROOTS)))
 
 
 def source_of(path):
@@ -218,15 +219,15 @@ def sub1(text, old, new, name):
     return text.replace(old, new, 1)
 
 
-def mut(name, files, test, pkg, how=IN_TREE):
-    M[name] = (files, test, pkg, how)
+def mut(name, files, test, pkg, how=IN_TREE, repo=None):
+    M[name] = (files, test, pkg, how, repo)
 
 
-def blind(name, files, why, how=IN_TREE):
-    BLIND_SPOTS[name] = (files, why, how)
+def blind(name, files, why, how=IN_TREE, repo=None):
+    BLIND_SPOTS[name] = (files, why, how, repo)
 
 
-GUARD_TEST = "TestADelegationCallSiteConsultsTheVersion"
+GUARD_TEST = "TestTheCapabilityVocabulary"
 GUARD_PKG = "./internal/arch/"
 
 # The management plane's gate. It appears TWICE (the call tool and the probe
@@ -308,11 +309,11 @@ mut("藏在 && 里的反门禁：执行面门禁改成错状态比较", {
 #
 # ⚠️ 这一条改的是守卫**自己**的源码 ⇒ 它是被编译的 ⇒ overlay 对它有效。
 mut("守卫不认三态门禁：notPresentTest 的 NEQ 改成 EQL", {
-    f"{A}/version_test.go": sub1(guard,
+    f"{A}/version.go": sub1(guard,
         '\t\tif c.op != token.NEQ || c.marker != "present" {',
         '\t\tif c.op != token.EQL || c.marker != "present" {',
         "守卫不认三态门禁"),
-}, GUARD_TEST, GUARD_PKG, OVERLAY)
+}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-mcp")
 
 # M6 「版本号溜进工具层」：在工具层加一个按**发行版**分支的助手。
 #
@@ -337,7 +338,7 @@ mut("措辞在别处重写：doctor 自己写那句「没有委派方案」", {
         "jmsapi.Explain(jmsapi.CapDelegation, state)",
         '"this deployment has no Chat AI delegation scheme"',
         "措辞在别处重写"),
-}, "TestTheCapabilityWordingIsNotRewrittenElsewhere", GUARD_PKG)
+}, "TestTheCapabilityWordingIsNotRewrittenElsewhere", GUARD_PKG, IN_TREE, "jumpserver-mcp-kit")
 
 # ---- 守卫的边界（必须仍然绿） ---------------------------------------------
 
@@ -351,7 +352,7 @@ blind("边界：反门禁 + 摘掉极性检查 ⇒ 没人抓", {
         "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.MayPresent(ctx, jmsapi.CapDelegation) {",
         "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.Profile(ctx).State(jmsapi.CapDelegation) == jmsapi.CapabilityAbsent {",
         "边界 B1"),
-    f"{A}/version_test.go": sub1(guard,
+    f"{A}/version.go": sub1(guard,
         "\tcmps := stateComparisons(cond, constName, imports, bound)\n\tif len(cmps) == 0 {",
         "\tcmps := stateComparisons(cond, constName, imports, bound)\n\tif len(cmps) >= 0 {",
         "边界 B1"),
@@ -365,11 +366,11 @@ blind("边界：反门禁 + 摘掉极性检查 ⇒ 没人抓", {
 # compiler, not by the guard, and the sweep counts those apart — so a
 # canary that does not compile proves nothing about the overlay.
 CANARY = ("【canary】守卫认不出能力提问", {
-    f"{A}/version_test.go": sub1(guard,
+    f"{A}/version.go": sub1(guard,
         "\t\t\tif a.Sel.Name == constName {",
         "\t\t\tif a.Sel.Name == constName+\"__canary\" {",
         "canary"),
-}, GUARD_TEST, GUARD_PKG, OVERLAY)
+}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-mcp-exec")
 
 
 def make_copy():
@@ -422,7 +423,57 @@ def effective_sites(original, content):
     return max(1, changed)
 
 
-def run_one(name, files, test, pkg, how, verbose, expect="red"):
+def is_guard_source(path):
+    """这个文件是不是**守卫自己的源码**（底座的 pkg/arch/）。
+
+    ⚠️ 守卫的体是被**编译**的 ⇒ 改它要用 overlay（-overlay），而服务仓的
+    调用点是**运行时读源码树**的 ⇒ 改它要落盘。两种改法混在一条变异里时，
+    靠这个判据分开。
+    """
+    return os.sep + "pkg" + os.sep + "arch" + os.sep in path
+
+
+def repo_for(files):
+    """这条变异要在**哪个仓**里跑测试。
+
+    ⚠️ 判据是「守卫在那儿**扫树**」的那个仓 —— 守卫是运行时读源码树的，
+    所以它得在**被改的那棵树**里跑。
+
+    ⚠️ 跨仓的变异（改守卫的源码 + 改服务仓的调用点）：测试跑在**调用点**
+    那个仓里，而守卫源码的改动走 overlay（它是编译进去的）⇒ 一次变异
+    可以同时用两种改法。
+    """
+    tree_owners = []
+    for path in files:
+        owner = workset.repo_of(path, ROOTS)
+        if owner is None:
+            raise SystemExit(f"⚠️  {path} 不属于工作集里的任何一个仓")
+        if not is_guard_source(path) and owner not in tree_owners:
+            tree_owners.append(owner)
+    if len(tree_owners) == 1:
+        # ⚠️ **副本**里的那个仓，不是真仓！变异写在副本里 ⇒ 测试必须跑在副本上，
+        #    跑在真仓上看到的永远是**未变异**的代码 ⇒ 每条变异都会「仍绿」。
+        return os.path.join(WS, os.path.basename(tree_owners[0]))
+    if not tree_owners:
+        # 只改了守卫自己的源码 ⇒ 在底座里跑（它扫的是兄弟仓的树）。
+        return KIT_REPO
+    raise SystemExit("⚠️  变异跨了多个仓且说不清在哪儿跑测试：%s" % tree_owners)
+
+
+def repo_by_name(name):
+    """按仓名找到工作集里的那个仓（及其副本）。
+
+    ⚠️ 为什么需要显式指定：守卫的**体**在底座，但它的**调用点**在服务仓 ⇒
+    「让守卫认不出能力提问」这种变异，只能在**有调用点的那个仓**里跑测试，
+    才看得出守卫是不是瞎了。⇒ 不能靠「改动在哪儿」推出来。
+    """
+    for r in ROOTS:
+        if os.path.basename(r) == name:
+            return os.path.join(WS, os.path.basename(r))
+    raise SystemExit(f"⚠️  工作集里没有 {name} 这个仓")
+
+
+def run_one(name, files, test, pkg, how, verbose, expect="red", repo=None):
     """Run one mutation. Returns "red", "green" or "build-failed".
 
     ⚠️ `expect` decides how the outcome is PHRASED, not whether it is
@@ -430,33 +481,39 @@ def run_one(name, files, test, pkg, how, verbose, expect="red"):
     expected to stay green. ⇒ Printing "the guard is fake" for a boundary
     that stayed green would say the opposite of the truth.
     """
+    # ⚠️ 两种改法可以混在一条变异里：守卫自己的源码（底座的 pkg/arch/）是
+    #    **被编译**的 ⇒ 走 overlay；服务仓的调用点是**运行时读源码树**的
+    #    ⇒ 落盘。跨仓的变异正是这种（改守卫 + 改调用点）。
+    overlay_files = {p: c for p, c in files.items() if is_guard_source(p)}
+    tree_files = {p: c for p, c in files.items() if not is_guard_source(p)}
     replace = {}
-    if how == OVERLAY:
-        for path, content in files.items():
-            tmp = os.path.join(OUT, f"{name}_{os.path.basename(path)}")
-            open(tmp, "w").write(content)
-            replace[in_copy(path)] = tmp
-        overlay = os.path.join(OUT, f"overlay_{name}.json")
-        import json
-        json.dump({"Replace": replace}, open(overlay, "w"))
-        cmd = ["go", "test", "-v", "-overlay=" + overlay, pkg, "-run", "^" + test + "$"]
-    else:
-        reset_tree()
-        apply_tree(files)
-        cmd = ["go", "test", "-v", pkg, "-run", "^" + test + "$"]
+    for path, content in overlay_files.items():
+        tmp = os.path.join(OUT, f"{name}_{os.path.basename(path)}")
+        open(tmp, "w").write(content)
+        replace[in_copy(path)] = tmp
+    overlay = os.path.join(OUT, f"overlay_{name}.json")
+    import json
+    json.dump({"Replace": replace}, open(overlay, "w"))
+    reset_tree()
+    apply_tree(tree_files)
+    cmd = ["go", "test", "-v"]
+    if replace:
+        cmd.append("-overlay=" + overlay)
+    cmd += [pkg, "-run", "^" + test + "$"]
+    # ⚠️ 测试在**被改的那棵树**的仓里跑（守卫运行时读源码树）。
+    repo_dir = repo_by_name(repo) if repo else repo_for(files)
     try:
         p = subprocess.run(
             cmd,
-            cwd=REPO, capture_output=True, text=True,
+            cwd=repo_dir, capture_output=True, text=True,
             # ⚠️ JMS_SIBLING_ROOTS 指着**副本**里的三个仓：守卫读的是源码树，
             # 不是编译产物 ⇒ 它得知道另外两个仓在哪。
             env={**os.environ, "GOFLAGS": "-mod=readonly", "GOPROXY": "off",
-                 "PWD": REPO, "JMS_SIBLING_ROOTS": COPY_SIBLING_ENV})
+                 "PWD": repo_dir, "JMS_SIBLING_ROOTS": COPY_SIBLING_ENV})
     finally:
         # ⚠️ 副本复位：下一次变异必须从**未变异**的代码开始 ⇒ 否则上一条
         # 变异会渗进下一条 ⇒ 报告的数字比实际弱。
-        if how != OVERLAY:
-            reset_tree()
+        reset_tree()
     out = p.stdout + p.stderr
     # ⚠️ The test has to have RUN. A -run pattern that matches nothing
     # exits 0 — and "nothing ran, so it is green" is exactly how a
@@ -501,13 +558,13 @@ def main():
         return 1
 
     # The canary first, and alone.
-    name, files, test, pkg, how = CANARY
+    name, files, test, pkg, how, canary_repo = CANARY
     for path, content in files.items():
         if content == source_of(path):
             print(f"⚠️  canary: 变异没生效（模式没匹配上）")
             return 1
     print("先跑 canary：")
-    if run_one(name, files, test, pkg, how, True) != "red":
+    if run_one(name, files, test, pkg, how, True, repo=canary_repo) != "red":
         print("❗ canary 没有变红 ⇒ overlay 没生效，后面每条变异都会跑在**未变异的代码**上。")
         print("   （这一轮的数字不作数。）")
         return 1
@@ -516,7 +573,7 @@ def main():
     survivors = []
     build_failed = []
     prints = {}
-    for mname, (files, mtest, mpkg, mhow) in M.items():
+    for mname, (files, mtest, mpkg, mhow, mrepo) in M.items():
         for mpath, mcontent in files.items():
             fp = (mpath, mcontent)
             if fp in prints:
@@ -528,7 +585,7 @@ def main():
     # ⚠️ 一次变异只能改一处。
     site_checked = 0
     site_violations = []
-    for name, (files, test, pkg, how) in M.items():
+    for name, (files, test, pkg, how, repo) in M.items():
         for path, content in files.items():
             original = source_of(path)
             sites = effective_sites(original, content)
@@ -536,7 +593,7 @@ def main():
             if sites > 1 and name not in ALLOWED_SITES:
                 site_violations.append((name, sites, path))
 
-    for name, (files, test, pkg, how) in M.items():
+    for name, (files, test, pkg, how, repo) in M.items():
         if name in survivors:
             continue
         broken = False
@@ -548,7 +605,7 @@ def main():
         if broken:
             survivors.append(name)
             continue
-        outcome = run_one(name, files, test, pkg, how, verbose)
+        outcome = run_one(name, files, test, pkg, how, verbose, repo=repo)
         if outcome == "build-failed":
             build_failed.append(name)
         elif outcome == "green":
@@ -566,7 +623,7 @@ def main():
     print()
     print("🔬 守卫的边界（登记在案，必须仍然绿）:")
     tight = []
-    for name, (files, why, how) in BLIND_SPOTS.items():
+    for name, (files, why, how, repo) in BLIND_SPOTS.items():
         broken = False
         for path, content in files.items():
             if content == source_of(path):
@@ -597,7 +654,7 @@ def main():
         for p in touched:
             print("   -", os.path.relpath(p, ROOT))
         return 1
-    print(f"🔍 真仓未被触碰：{len(SOURCES)} 个源文件逐字节未变（变异全在 {REPO} 里）")
+    print(f"🔍 真仓未被触碰：{len(SOURCES)} 个源文件逐字节未变（变异全在 {WS} 里）")
     if site_violations:
         for name, _sites, _path in site_violations:
             if name not in survivors:

@@ -77,12 +77,37 @@
 `go list -m` 报的是路径而不是版本，`require` 里的版本号变成一句空话。
 本地联调用 `go.work`（**不入库**，见 `.gitignore`）。
 
+⚠️ ⚠️ **打 tag 之前，main 的 CI 必须已经绿。**
+踩过的坑：`v0.3.0` 是在 CI 还红的时候打的 ⇒ 那个 tag 缺一个源码文件
+（`.gitignore` 的 `coverage.*` 把同名源码 `coverage.go` 吞了）⇒
+`go install github.com/yi-nology/jumpserver-mcp/cmd/jumpserver-mcp@v0.3.0`
+**编译失败**，而**没有人收到通知**（tag 推上去不会让人看见 CI 红了）。
+⇒ 顺序是：**推 main → 等 CI 绿 → 打 tag → 推 tag**。
+⇒ 三个仓的 CI 都配了 `on: push: tags: ['v*']` ⇒ tag 也会跑一遍 CI，
+坏掉的 tag 会当场红（**但它已经发出去了** ⇒ 前一条才是真正的防线）。
+
 **跨仓守卫需要三棵树同时在手**（底座的可达性、共用词汇的产出者、能力的措辞）：
 - 兄弟仓在哪：环境变量 `JMS_SIBLING_ROOTS`（`:` 分隔）优先，
   否则用同级目录约定 `../jumpserver-mcp` 与 `../jumpserver-mcp-exec`；
 - 找不到 ⇒ **跳过**（消息写清楚缺哪棵树、怎么补）；
 - ⚠️ **跳过 ≠ 通过** ⇒ CI 设 `JMS_REQUIRE_SIBLINGS=1`，缺树时**失败**而不是跳过。
   机械在 `pkg/arch/siblings.go`。
+
+### 拆仓带来的已知偏差（**比声明的更弱/更强，就写在这儿**）
+
+拆仓不是「原样搬走」，有几条守卫的**覆盖面真的变了**。写下来是为了
+「下一个读代码的人」与「下一个审阅的人」**看到同一份事实** —— 藏起来的偏差
+才是坏的那种。
+
+| # | 偏差 | 方向 | 事实与证据 |
+|---|---|---|---|
+| 1 | **契约词汇同名检查**（`CheckContractVocabularyNaming`）**按仓分开查了** | 更弱 | 归档仓扫**全仓**，判「同名包只能有一个」；现在每仓只扫自己 ⇒ 同名包出现在**另一个**仓不会被抓到（同名包会编译冲突，影响很小，但**确实抓不到了**）。三仓各有这道守卫（`internal/arch/{kit,management,execution}_test.go`）。 |
+| 2 | **`pkg/arch` 被显式排除在「底座必须被两个服务都用」之外** | **更强** | `pkg/arch/shared.go` 的 `guardMachinery` 列明了它；底座自己的 `_test.go` 不产生可达性边 ⇒ 守卫不会误报自己。这条**不是**偏差，是有意排除。 |
+| 3 | ⚠️ **共用词汇的契约守卫比它声称的更弱** | **更弱** | 它守的是「**契约类型写了没人产出 = 契约不存在**」（`model/jms/contract_test.go`）。实测：**底座自己的 `pkg/audit`/`pkg/reg`/`pkg/render`/`pkg/arch` 提到了全部 9 个共享类型** ⇒ 把执行面换成**空仓**（一个工具都没有），这道守卫**仍然绿**。<br>⇒ **它守的不是「服务面产出它」，是「全仓有代码提到它」** —— 共享词汇住在底座，底座自己用它是正常的。<br>⇒ 要判「产出者在服务仓」，得**排除底座自己的引用**再扫 —— 那是**判据**的改动（`Scope` 加一个字段），**不是**本轮该顺手做的事。 |
+| 4 | **委派密钥缺失的报错文案变了** | 更啰嗦，无语义变化 | 归档仓：`"no delegation secret configured"`；本仓：额外说出**去哪找**（`JMS_DELEGATION_SECRET` 或哪几个文件、权限 0600）。**这条文案在归档仓的历史里从未存在过** ⇒ 它是一次**独立的行为变化**，不是改名。已写进 [`CHANGELOG.md`](CHANGELOG.md)。 |
+
+⚠️ **写偏差的规矩**：**方向要写准**（更强还是更弱），**证据要能复现**。
+「大概弱了一点」这种话，下一个人没法据此判断要不要修。
 
 ### 目录约定（CloudWeGo hz）
 
@@ -822,7 +847,7 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 | 单元测试 | `go test ./...` 必须全绿 |
 | 格式化 | `gofmt -l .` 无输出 |
 | 静态检查 | `go vet ./...` 无错 |
-| 工具数 | 管理面 97 / 执行面 15（各服务仓的 `biz/<面>/router/policy_test.go` 会钉住这个数） |
+| 工具数 | 管理面 **97**（`biz/jumpserver/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `biz/exec/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
 | 目录一致 | 策略表与注册表必须一一对应（`policy_test.go` 会查） |
 | 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（`internal/arch/answer_test.go`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |
@@ -863,6 +888,11 @@ require 并跑一遍它们的测试。**只跑本仓的测试不算交付。**
 本仓是 git 仓（仓库根目录）。
 
 - 提交前确认 `git status` 里**没有**构建产物、备份文件、二进制。
+  ⚠️ **`git status` 是提交前的最后一道自查**，不是可选项：
+  `.gitignore` 的一个 `coverage.*` 就把源码文件 `biz/jumpserver/handler/coverage.go`
+  吞掉过 ⇒ 文件在磁盘上、在工作区里，但**不在提交里** ⇒ 发布出去的 tag 编译不过。
+  ⇒ 提交前跑一次 `git status --short`，确认**每个要改的文件都出现在列表里**；
+  尤其新建的源码文件，要 `git add` 之后**再看一眼列表**（`git add` 之前它不在列表里）。
 - 提交信息用中文，说明**改了什么行为**（不是「更新代码」）。
 - 不要提交 `~/.minimax/mcp.json` 里的 token —— 那是仓外的运行时配置。
 - ⚠️ **`go.work` / `go.work.sum` 不入库**（见 `.gitignore`）：它是本机的联调接线。
