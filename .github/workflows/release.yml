@@ -46,6 +46,16 @@ jobs:
         with:
           go-version-file: kit/go.mod
 
+      # ⚠️ 这一步**不能省**：`TestTheDependenciesArePinned` 守的是
+      #   「每个依赖都被 go.sum 钉住、**都已��� module cache 里解包**」。
+      #   `go vet` / `go test` 只会拉**被编译到的**那些依赖 ⇒ 没被引用到的
+      #   依赖不会解包 ⇒ 那道守卫会红（实测：golang.org/x/crypto、
+      #   oekit/core、oekit/network 三个没解包 ⇒ release 卡住）。
+      #   ⇒ `go mod download` 拉的是 go.mod 里**全部**的依赖。
+      - name: Download dependencies
+        working-directory: kit
+        run: go mod download
+
       - name: Run vet
         working-directory: kit
         run: go vet ./...
