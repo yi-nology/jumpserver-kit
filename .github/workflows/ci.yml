@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+# GOPRIVATE:github.com/oagentkit/* —— 自家模块系列(guardx 等)不走公开代理与
+# checksum DB,直接从 GitHub 取:第三方代理不参与自家模块的分发。
+#
+# ⚠️ 前提:这些仓当前是**公开**的,直连走匿名 HTTPS 即可;GOPRIVATE 同时会让 Go
+#    跳过 checksum DB(go.sum 的哈希校验仍然生效)。
+#    若将来 oagentkit 转私有,本 workflow 的 checkout 用了 persist-credentials: false
+#    (不保留 git 凭据),届时必须改成保留凭据,否则直连拉取会失败。
+env:
+  GOPRIVATE: github.com/oagentkit/*
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # ⚠️ 跨仓守卫需要**三棵树同时在手**:底座不得依赖服务(跨 module path)、
+    # 底座的包必须被两个服务都用(可达性要穿过两个服务仓的 import 图)、
+    # 共用词汇必须真被产出(产出者在服务仓里)、能力的措辞不许在别处重写。
+    #
+    # ⇒ 缺兄弟仓 ⇒ 守卫**跳过** ⇒ 跳过 ≠ 通过 ⇒ JMS_REQUIRE_SIBLINGS=1 让它变红。
+    #
+    # ⚠️ 先后依赖:两个服务仓必须**先在 GitHub 上存在**,否则这里的 checkout 直接失败。
+    #   (推的顺序:先建三个仓 → 推 kit 并打 v0.1.0 tag → 推两个服务仓。)
+    env:
+      JMS_REQUIRE_SIBLINGS: "1"
+      JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mcp:${{ github.workspace }}/jumpserver-mcp-exec
+
+    steps:
+      # ⚠️ 本仓 checkout 到 kit/ 子目录 ⇒ 它的兄弟目录正好是 ../jumpserver-mcp 与
+      #   ../jumpserver-mcp-exec —— 与 pkg/arch.SiblingRoots 的同级目录约定一致。
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          persist-credentials: false
+
+      - name: Checkout management plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-mcp
+          path: jumpserver-mcp
+          persist-credentials: false
+
+      - name: Checkout execution plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-mcp-exec
+          path: jumpserver-mcp-exec
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: kit/go.mod
+          cache: true
+          cache-dependency-path: kit/go.sum
+
+      - name: Check formatting
+        working-directory: kit
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未按 gofmt 格式化:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Download dependencies
+        working-directory: kit
+        run: go mod download
+
+      - name: Run vet
+        working-directory: kit
+        run: go vet ./...
+
+      - name: Build
+        working-directory: kit
+        run: go build ./...
+
+      - name: Run tests
+        working-directory: kit
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          files: kit/coverage.out
+        # ⚠️ 需要仓库侧配好 codecov 才能上传成功;没配时**不要**让这一条把整个 CI 拉红。
+        continue-on-error: true
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: kit/go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+          working-directory: kit
+        # ⚠️ 默认规则集还没在本仓调过 ⇒ 先**报告**不阻断;调好之后去掉这一行。
+        continue-on-error: true
+
+  vuln:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          persist-credentials: false
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          repo-checkout: false
+          go-version-file: kit/go.mod
+          work-dir: kit

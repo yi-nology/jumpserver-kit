@@ -1,0 +1,102 @@
+# The read-only command table.
+#
+# A command listed here cannot write: the parser proves it, and the agent
+# never has to think about it. A command that is NOT listed is "not proven
+# read-only" — the parser cannot show that it writes either, but it cannot
+# show that it does not, so it is treated as a write.
+#
+# Why this is a file and not a map in the code: the table is a policy
+# surface, and policy surfaces get reviewed, diffed and argued about. A
+# command is added here, in one place, with the reasoning next to it.
+#
+# Why it is EMBEDDED and not read at runtime: this table decides what runs
+# without a confirmation. A file on disk that anyone can edit would be a
+# hole in that decision; the table changes with the code, or not at all.
+#
+# Format
+#   safe_flags:    flags that change nothing.
+#                    "bool"   — takes no value
+#                    "string" — takes one value
+#                    "number" — takes one number
+#                    "optional" — the value may follow or be inline
+#                  A flag that is not listed is not safe, so the command is
+#                  not read-only.
+#   unsafe_flags:  flags that DO change something — the exceptions to the
+#                  safe ones (a command whose safe flags are listed but
+#                  which has a destructive variant).
+#   subcommands:  the subcommands that change nothing. A subcommand that
+#                  is NOT listed is not read-only, so the writing verbs
+#                  (systemctl restart, docker rm, kubectl delete) stay out
+#                  by omission rather than by an explicit deny list.
+#
+# The base table of the shell analyzer (oagentkit/tools/bashguard) is merged
+# in first; this file only adds what this fleet's daily sweeps run.
+
+version: 1
+
+commands:
+  # ---- plain readers -------------------------------------------------
+  uptime: {}
+  free:
+    safe_flags: {"-m": bool, "-h": bool, "-g": bool, "-s": bool, "-t": bool, "-w": bool, "-c": bool}
+  lscpu: {}
+  lsblk:
+    safe_flags: {"-f": bool, "-a": bool, "-o": string, "-p": bool, "-b": bool, "-d": bool}
+  getent: {}
+  awk: {}
+  vmstat: {}
+  iostat: {}
+  mpstat: {}
+  sar: {}
+  netstat:
+    safe_flags: {"-t": bool, "-u": bool, "-l": bool, "-p": bool, "-n": bool, "-a": bool, "-r": bool, "-s": bool, "-i": bool}
+  ss:
+    safe_flags: {"-t": bool, "-u": bool, "-l": bool, "-p": bool, "-n": bool, "-a": bool, "-r": bool, "-s": bool, "-i": bool, "-o": string}
+
+  # ---- service state a status sweep asks about ------------------------
+  # The writing verbs are deliberately absent: they are not in the
+  # subcommand list, so they stay "not read-only".
+  systemctl:
+    subcommands:
+      status: {}
+      show: {}
+      list-units: {}
+      list-unit-files: {}
+      list-sockets: {}
+      is-active: {}
+      is-enabled: {}
+      is-failed: {}
+      cat: {}
+      get-default: {}
+  journalctl:
+    safe_flags: {"-u": string, "-n": string, "-f": bool, "--since": string, "--until": string, "-p": string}
+    # These empty the journal — that is a deletion, so they are not safe.
+    unsafe_flags: ["--vacuum-size", "--vacuum-time", "--vacuum-files", "--rotate", "--flush"]
+  docker:
+    subcommands:
+      ps: {}
+      images: {}
+      inspect: {}
+      logs: {}
+      version: {}
+      info: {}
+      stats: {}
+      top: {}
+      port: {}
+      diff: {}
+      history: {}
+      search: {}
+  kubectl:
+    subcommands:
+      get: {}
+      describe: {}
+      logs: {}
+      top: {}
+      version: {}
+      api-resources: {}
+      api-versions: {}
+      explain: {}
+      cluster-info: {}
+      auth: {}
+      config: {}
+      events: {}
