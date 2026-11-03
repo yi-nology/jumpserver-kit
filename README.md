@@ -55,7 +55,7 @@ JumpServer 协议层、工具注册与门禁、结果整形与输出契约、工
 ## 3. 怎么用
 
 ```bash
-go get github.com/yi-nology/jumpserver-mcp-kit@v0.1.0
+go get github.com/yi-nology/jumpserver-mcp-kit@latest
 ```
 
 ```go

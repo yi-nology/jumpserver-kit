@@ -80,8 +80,12 @@
 # 在服务仓根目录（go.work / go.work.sum 已在 .gitignore 里）
 go work init .
 go work use ../jumpserver-mcp-kit
-go work edit -replace github.com/yi-nology/jumpserver-mcp-kit@v0.1.0=../jumpserver-mcp-kit
+go work edit -replace github.com/yi-nology/jumpserver-mcp-kit@v0.1.1=../jumpserver-mcp-kit
 ```
+
+⚠️ **`replace` 的版本号要跟 `go.mod` 里 `require` 的那个一致** ——
+只写 `use` 不够：Go 仍会去取 `require` 那个版本的 `go.mod`，
+在离线机器上就报 `module lookup disabled by GOPROXY=off`。
 
 ⚠️ **改底座 ⇒ 两个服务都要跑一遍测试**。只跑本仓的测试不算交付。
 
