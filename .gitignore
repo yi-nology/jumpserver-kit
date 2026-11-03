@@ -1,7 +1,8 @@
 # 构建产物（本仓是库，没有二进制；这一段是为了将来加工具时不漏）
 *.test
 *.out
-coverage.*
+coverage.out
+coverage.html
 
 # go.work 只在本机存在：两个服务仓的 go.mod 里 require 了 kit v0.1.0，
 # 而 kit 还没发布到 GitHub ⇒ 本地靠工作集（go.work）把它接进来。
