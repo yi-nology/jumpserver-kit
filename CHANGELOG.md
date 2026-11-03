@@ -11,6 +11,18 @@
 
 ### 修复
 
+## [0.1.3] - 2026-11-04
+
+### 修复
+
+- ⚠️ **`v0.1.2` 的 Release 没发出来**：release workflow 少了
+  `go mod download` ⇒ 依赖没在 module cache 里解包 ⇒
+  `TestTheDependenciesArePinned` 卡住发版（实测：golang.org/x/crypto、
+  oekit/core、oekit/network 三个没解包）。
+  ⇒ 加上那一步。
+  ⚠️ **模块内容本身没问题** —— `v0.1.2` 作为 Go 模块是能用的
+  （`go get`/`go build` 都正常），坏的只是那次 Release。
+
 ## [0.1.2] - 2026-11-04
 
 ### 新增
