@@ -81,7 +81,7 @@ func up(t *testing.T, records *recs) (*Server, execface.Client, *reg.Registry) {
 		}}, nil, nil
 	})
 	s, err := New(r, ServeOptions{
-		Options: Options{Token: "sekrit", Name: "rpcapi-test", Version: "1"},
+		Options: Options{Token: "sekrit"},
 		Addr:    "127.0.0.1:0",
 		Stderr:  io.Discard,
 	})
@@ -203,23 +203,12 @@ type twoblocksArgs struct{}
 
 func TestRPCFaceStartStopLeavesPortRebindable(t *testing.T) {
 	var rc recs
-	s, cli, _ := testRPC(t, &rc)
+	s, _, _ := testRPC(t, &rc)
 	a := s.Addr()
-	// The Stop must not race the server's own bootstrap: wait until the
-	// face has answered once (Run completed), then stop.
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := cli.Invoke(ctx, &jmsrpc.ToolCall{Token: "sekrit", Tool: "echo", Args_: []byte(`{}`)})
-		cancel()
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the face never came up: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	// No settle probe here ON PURPOSE: Stop must fence the bootstrap
+	// window itself (a self-call round trip proves netpoll is serving);
+	// the race detector is the judge — a Stop racing kitex's bootstrap
+	// fails this test under -race.
 	if err := s.Stop(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}

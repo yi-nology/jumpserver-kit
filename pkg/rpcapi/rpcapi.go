@@ -20,7 +20,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
+	"time"
 
+	"github.com/cloudwego/kitex/client"
+	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	kitexserver "github.com/cloudwego/kitex/server"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oekit/concurrency/async"
@@ -34,13 +38,11 @@ import (
 const RPCCaller = "rpc"
 
 // Options is the RPC face's own configuration: the per-call token every
-// method demands (no auth-off mode).
+// method demands (no auth-off mode). ⚠️ Deliberately NO Name/Version:
+// the thrift contract carries no self-report method, and dead config is
+// drift bait — add them together with the IDL field that would use them.
 type Options struct {
 	Token string
-	// Name and Version are the server's self-report (parity with
-	// httpapi.Options).
-	Name    string
-	Version string
 }
 
 // ServeOptions is Options plus where to listen and where the face writes
@@ -61,6 +63,10 @@ type Server struct {
 	ln     net.Listener
 	addr   string
 	stderr io.Writer
+	token  string
+	// probedOK flips once a self-call round trip has succeeded: the
+	// bootstrap fence below only needs one proof.
+	probed sync.Once
 }
 
 // New assembles the kitex face and binds it. The bind is SYNCHRONOUS: a
@@ -81,15 +87,34 @@ func New(r *reg.Registry, opts ServeOptions) (*Server, error) {
 	face := &execFace{reg: r, token: opts.Token}
 	svr := execface.NewServer(face, kitexserver.WithListener(ln))
 	fmt.Fprintf(opts.Stderr, "listening on %s  (kitex, service ExecFace)\n", ln.Addr())
-	return &Server{svr: svr, ln: ln, addr: ln.Addr().String(), stderr: opts.Stderr}, nil
+	return &Server{svr: svr, ln: ln, addr: ln.Addr().String(), stderr: opts.Stderr, token: opts.Token}, nil
 }
 
 // Addr hands back the real address (for ":0", the resolved port).
 func (s *Server) Addr() string { return s.addr }
 
 // Svr hands the server to the composition root (oekit/kitex.RunServer in
-// pkg/faces' bootstrap modes).
-func (s *Server) Svr() kitexserver.Server { return s.svr }
+// pkg/faces' bootstrap modes). The Stop is FENCED: RunServer registers it
+// as the shutdown resource, so the daemon path needs the same
+// bootstrap protection the stdio ride gets from Server.Stop.
+func (s *Server) Svr() kitexserver.Server { return fencedSvr{s} }
+
+// fencedSvr delegates everything to the inner server except Stop, which
+// waits for the face to have answered once (see fenceBootstrap).
+type fencedSvr struct{ s *Server }
+
+func (f fencedSvr) Run() error { return f.s.svr.Run() }
+func (f fencedSvr) Stop() error {
+	return f.s.Stop()
+}
+
+func (f fencedSvr) RegisterService(si *serviceinfo.ServiceInfo, h any, opts ...kitexserver.RegisterOption) error {
+	return f.s.svr.RegisterService(si, h, opts...)
+}
+
+func (f fencedSvr) GetServiceInfos() map[string]*serviceinfo.ServiceInfo {
+	return f.s.svr.GetServiceInfos()
+}
 
 // RunBackground serves in the background (the stdio-mode ride). The news
 // line already went out in New; a Run error after a successful bind is
@@ -102,14 +127,41 @@ func (s *Server) RunBackground() {
 	})
 }
 
-// Stop shuts the face down. kitex's Stop is idempotent, and the listener
-// was adopted by the server — its Close is the authoritative one, so a
-// defensive Close here fails with "use of closed network connection",
-// which IS success, not a second error to report.
+// Stop shuts the face down — behind the bootstrap fence. kitex's Stop is
+// idempotent, and the listener was adopted by the server — its Close is
+// the authoritative one, so a defensive Close here fails with "use of
+// closed network connection", which IS success, not a second error.
 func (s *Server) Stop() error {
+	s.probed.Do(s.fenceBootstrap)
 	err := s.svr.Stop()
 	_ = s.ln.Close()
 	return err
+}
+
+// fenceBootstrap waits until kitex's Run has passed its bootstrap. kitex
+// assigns transServer.ln OUTSIDE its own lock while Shutdown reads it
+// under the lock (v0.16.4), so a Stop landing inside the bootstrap window
+// is a data race — found by the race detector, reproduced by an audit
+// probe, and kitex exposes no after-start hook to close it from the
+// outside. The deterministic proof that bootstrap is done: a REAL kitex
+// round trip against the face (netpoll only answers once the event loop
+// is up). Bounded at 2s — a face that never comes up must not hang the
+// caller; the window is better narrowed than the exit path hung.
+func (s *Server) fenceBootstrap() {
+	cli := execface.MustNewClient("rpcapi-fence", client.WithHostPorts(s.addr))
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		_, err := cli.Catalogue(ctx, s.token)
+		cancel()
+		if err == nil || time.Now().After(deadline) {
+			if err != nil {
+				fmt.Fprintf(s.stderr, "rpc: bootstrap fence timed out; stopping anyway\n")
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // execFace implements jmsrpc.ExecFace. The registry does the work; the

@@ -9,16 +9,10 @@
 package httpapi
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/oekit/concurrency/async"
 
@@ -72,27 +66,4 @@ func Start(r *reg.Registry, opts ServeOptions) (*http.Server, string, error) {
 	})
 	fmt.Fprintf(opts.Stderr, "listening on http://%s  (REST /api/v1/…, MCP /mcp)\n", ln.Addr())
 	return srv, ln.Addr().String(), nil
-}
-
-// serveUntilSignal is `serve http`: the face until the process is asked
-// to stop, then a graceful shutdown with a 5-second deadline.
-func serveUntilSignal(ctx context.Context, r *reg.Registry, opts ServeOptions) error {
-	if opts.Addr == "" {
-		hint := "serve http needs an address to listen on — JMS_HTTP_ADDR"
-		if e := opts.ExampleAddr; e != "" {
-			hint += ", e.g. " + e
-		}
-		return errors.New(hint)
-	}
-	srv, _, err := Start(r, opts)
-	if err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
-	return nil
 }

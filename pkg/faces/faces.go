@@ -163,8 +163,13 @@ func runDaemon(ctx context.Context, r *reg.Registry, opts Options, m mode) error
 			if err != nil {
 				return err
 			}
-			app.AddResource("http", func(_ context.Context) error {
-				return srv.Shutdown(context.Background())
+			// ⚠️ The closer MUST use the ctx bootstrap hands it — it
+			// carries the per-resource shutdown budget. context.Background()
+			// here made Shutdown wait for every idle connection (an SSE
+			// stream = forever): the daemon outlived its own budget
+			// (verifier probe: 12.2s against a 5s budget).
+			app.AddResource("http", func(ctx context.Context) error {
+				return srv.Shutdown(ctx)
 			})
 		}
 		if (m == modeRPC || m == modeAll) && opts.RPC != nil && opts.RPC.Addr != "" {

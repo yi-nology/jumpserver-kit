@@ -32,7 +32,7 @@ func httpOpts(addr string) *httpapi.ServeOptions {
 
 func rpcOpts(addr string) *rpcapi.ServeOptions {
 	return &rpcapi.ServeOptions{
-		Options: rpcapi.Options{Token: "sekrit", Name: "faces-test", Version: "1"},
+		Options: rpcapi.Options{Token: "sekrit"},
 		Addr:    addr,
 	}
 }
