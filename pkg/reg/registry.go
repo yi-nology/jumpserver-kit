@@ -30,6 +30,7 @@ import (
 	"github.com/oagentkit/guardx/permgate"
 
 	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 	"github.com/yi-nology/jumpserver-kit/pkg/redact"
 	"github.com/yi-nology/jumpserver-kit/pkg/render"
 )
@@ -329,6 +330,28 @@ func Add[In any](r *Registry, t *mcp.Tool, fn mcp.ToolHandlerFor[In, any]) {
 	})
 }
 
+// callFacts is what the execution body tells the rest of the call about
+// what happened. The closures below fill it in across the chain's
+// boundary; it used to be three free variables crossing that boundary
+// silently, and a reader had to hunt each write to know what the trail
+// would end up saying.
+type callFacts struct {
+	// outcome is what the answer says happened. It is declared by the
+	// execution body, and the chain copies it into the record, so the
+	// trail reads the conclusion from one place instead of the registry
+	// stitching it back together afterwards.
+	outcome *render.Outcome
+	// toolErr is the tool's own failure text, when it answered with an
+	// error result. An MCP error result is still a successful protocol
+	// call, so the chain sees no error — without this the trail would
+	// have nothing to say about a call that failed.
+	toolErr string
+	// delivery is how far the action got, when the error knew. It is the
+	// answer to "did it reach the machine", and the trail needs it
+	// because a delivered command may still be running there.
+	delivery string
+}
+
 // call runs one tool through the gate.
 //
 // The chain is built per call rather than per tool so the handler can close
@@ -346,20 +369,7 @@ func call[In any](
 ) (*mcp.CallToolResult, any, error) {
 	var out *mcp.CallToolResult
 	var structured any
-	// outcome is what the answer says happened. It is declared HERE, by
-	// the execution body, and handed to the chain — the chain copies it
-	// into the record, so the trail reads the conclusion from one place
-	// instead of the registry stitching it back together afterwards.
-	var outcome *render.Outcome
-	// toolErr is the tool's own failure text, when it answered with an
-	// error result. An MCP error result is still a successful protocol
-	// call, so the chain sees no error — without this the trail would
-	// have nothing to say about a call that failed.
-	var toolErr string
-	// delivery is how far the action got, when the error knew. It is the
-	// answer to "did it reach the machine", and the trail needs it
-	// because a delivered command may still be running there.
-	var delivery string
+	facts := callFacts{}
 	chain, err := invoke.NewChain(
 		func(ctx context.Context, c invoke.Call) (invoke.Result, error) {
 			res, value, err := fn(ctx, req, in)
@@ -383,7 +393,7 @@ func call[In any](
 				// that is the one fact the trail cannot work out for
 				// itself.
 				if d := DeliveryOf(err); d != jms.Delivery(0) {
-					delivery = d.String()
+					facts.delivery = d.String()
 				}
 				return invoke.Result{}, err
 			}
@@ -391,8 +401,8 @@ func call[In any](
 				return invoke.Result{}, fmt.Errorf("tool %s produced no result", name)
 			}
 			out = res
-			outcome = render.OutcomeOf(value)
-			result := invoke.Result{Text: summary(res)}
+			facts.outcome = render.OutcomeOf(value)
+			result := invoke.Result{Text: render.ResultText(res)}
 			// The answer is serialised ONCE, here, and the bytes are what
 			// the trail measures.
 			//
@@ -438,19 +448,19 @@ func call[In any](
 					// because "the answer was broken" is exactly what
 					// the trail is for.
 					structured = value
-					toolErr = fmt.Sprintf("the answer could not be serialised: %v", mErr)
+					facts.toolErr = fmt.Sprintf("the answer could not be serialised: %v", mErr)
 				}
 			} else {
 				structured = value
 			}
 			if res.IsError {
-				toolErr = summary(res)
+				facts.toolErr = render.ResultText(res)
 			}
-			if outcome != nil {
+			if facts.outcome != nil {
 				// A nil Outcome means "the tool declared nothing", and
 				// the chain settles that by its own result. Declaring
 				// it here is what puts the conclusion into the trail.
-				result.Outcome = &outcome.Outcome
+				result.Outcome = &facts.outcome.Outcome
 			}
 			return result, nil
 		},
@@ -466,7 +476,7 @@ func call[In any](
 			// runs after the handler, so the answer is the one this call
 			// produced — and it is what says whether the tool refused to
 			// act.
-			r.record(rec, outcome, toolErr, delivery, false)
+			r.record(rec, facts.outcome, facts.toolErr, facts.delivery, false)
 		}),
 	)
 	if err != nil {
@@ -555,13 +565,16 @@ func (r *Registry) stages(name string) []invoke.Stage {
 // record hands one audit record to the caller.
 //
 // ⚠️ The arguments are scrubbed HERE, before the record is handed over —
-// so a callback of any kind receives them already masked. The scrubber is
-// not idempotent on its own, but the COMBINATION is (on valid JSON) — so
-// the trail scrubs them again for its two exits (see pkg/audit.Trail)
+// so a callback of any kind receives them already masked (Options.OnRecord
+// is PUBLIC) — and the trail scrubs them again for its two exits
+// (pkg/audit.Trail). Two passes are safe only because the COMBINED
+// scrubber is idempotent: that invariant, and why it needs BOTH halves of
+// the scrubber, is stated in ONE place — pkg/redact.Scrub. This comment
+// only points at it.
 //
 // The raw arguments can carry a password (jms_user_password_set,
 // jms_account_update) or a private key (jms_user_sshkey_add), and the
-// record is written to a log. logredact knows the shapes that matter.
+// record is written to a log.
 //
 // The conclusion comes along because the gate's verdict is not the whole
 // story: a tool that refuses a dangerous command has already PASSED the gate,
@@ -572,32 +585,9 @@ func (r *Registry) record(rec invoke.Record, outcome *render.Outcome, toolErr st
 	if r.audit == nil {
 		return
 	}
-	// ⚠️ The arguments are scrubbed HERE, with the combined scrubber
-	// (pkg/redact.Scrub) — the shape rules alone are not idempotent, but
-	// the combination is (on valid JSON), so the trail may scrub them
-	// again for its two exits without changing them.
+	// The combined scrubber (pkg/redact.Scrub) — the one place that
+	// documents what it masks and why a second pass is safe.
 	rec.Call.Args = redact.Scrub(rec.Call.Args)
-	//
-	// The scrubber is NOT idempotent: it replaces `"password":"x"` with
-	// `"password=****` — it eats the closing quote, so the result is no
-	// longer JSON, and a SECOND pass eats the separator after the marker
-	// too. Scrubbing here AND in the trail therefore destroyed more of
-	// the arguments than one pass does (the command line lost its
-	// separator, and the column stopped being parseable).
-	//
-	// So the scrubbing happens in TWO places — here and in the trail —
-	// and that is safe only because the COMBINED scrubber is idempotent
-	// (on valid JSON): the shape rules alone are not (they eat the
-	// closing quote of the value they mask, and a second pass eats the
-	// separator after that).
-	//
-	// ⚠️ Options.OnRecord is PUBLIC: any callback gets the arguments
-	// already masked.
-	//
-	// ⚠️ A caller that registers its OWN callback therefore gets the
-	// arguments ALREADY masked, and the trail scrubs them once more for
-	// its two exits — safe because the COMBINATION is idempotent (on
-	// valid JSON).
 	var wouldExecute *bool
 	var failure string
 	if outcome != nil {
@@ -657,15 +647,12 @@ func (r *Registry) Connect(ctx context.Context, tr mcp.Transport, opts *mcp.Serv
 // tool used to answer when it checked the flag itself. The chain's own
 // envelope ("invoke: 拒绝调用 ...") is for the audit trail, not for the
 // model — the model needs the instruction, not the framework's grammar.
-// refusal turns the gate's own denial into the sentence the caller needs.
 //
-// ⚠️ The type is matched EXACTLY, not with errors.As: the chain returns
-// the gate's denial as it is, and a tool error that happens to wrap
-// something of the same type must NOT be rewritten into the gate's
-// wording — that would tell the caller the gate stopped it when the gate
-// let it through and the tool broke.
+// ⚠️ Whether err IS the gate's denial is judged in one place
+// (errs.GateDenial — it spells out the exact-match rule and why). The
+// audit trail asks the same question for its own purposes.
 func refusal(err error) error {
-	if deny, ok := err.(*invoke.DenyError); ok && deny.Reason != "" {
+	if deny, ok := errs.GateDenial(err); ok && deny.Reason != "" {
 		return errors.New(deny.Reason)
 	}
 	return err
@@ -708,15 +695,7 @@ func rawArgs(req *mcp.CallToolRequest) []byte {
 	return req.Params.Arguments
 }
 
-// summary renders a result for the audit trail.
-func summary(res *mcp.CallToolResult) string {
-	if res == nil {
-		return ""
-	}
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok {
-			return t.Text
-		}
-	}
-	return ""
-}
+// summary used to render a result for the audit trail by taking the FIRST
+// text block — one of two definitions of "what did the tool say" in this
+// repository (pkg/httpapi joined them all). There is one now:
+// render.ResultText.

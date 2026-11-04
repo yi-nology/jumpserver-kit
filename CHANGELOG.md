@@ -11,6 +11,49 @@
 
 ### 修复
 
+## [0.4.0] - 2026-11-04
+
+### 变更
+
+- **枚举的 wire 值表收编**：`model/jms.WireEnums`（各枚举的 `*Values` 列表）是 wire 名的
+  唯一源，`pkg/render` 的 schema 钉词从它派生（`wireSchemas`）。原来只钉 `Status` 一个
+  枚举 ⇒ `CommandClass` / `Risk` / `Delivery` 的字段在契约里说 "integer"、答复却是词
+  （`"DANGEROUS"` / `"read"` / `"maybe_sent"`）—— 工具在违自己的声明形状。`Delivery`
+  补上名字进出的 Marshal/Unmarshal，与其余枚举一致。两表对账（生成常量 ↔ WireEnums）
+  有守卫（`model/jms/enum_values_test.go`）。
+- **「工具说了什么」收编为 `render.ResultText`**（所有 text 块按行拼接）：留痕原来只取
+  **第一块**、REST 面却全拼 ⇒ 同一个多块答复，留痕记一句、HTTP 面记全文。现在一处定义。
+- **门禁拒绝的精确类型判定收编为 `errs.GateDenial`**（`*invoke.DenyError` 精确匹配，
+  不用 errors.As）：`pkg/reg` 的 refusal 与 `pkg/audit` 的 toolFailed 共用一个判据。
+- **演练判定收编为 `risk.Rehearsal(c, confirmed)`**：「这命令会不会跑、缺什么」的措辞
+  唯一源 —— 两个面各拼过一份，其中一面把 "DANGEROUS" 硬编码进本该报**实际**类别的
+  句子里。
+- **注册表收编**：call 的三个跨界自由变量收进 `callFacts`；新增 `Registry.Has`（唯一
+  成员判定）与 `CatalogueEntry` / `Registry.Catalogue()`（目录行的唯一装配，REST 面
+  原样上桌 —— 两个面各自拼行就是两份会漂的装配）。
+- **脱敏的幂等性不变量只在 `pkg/redact.Scrub` 一处陈述**：audit/reg 原来各自复述一份
+  （两份复述就是两个漂移点），现在只指路。
+
+### 新增
+
+- **`render.ListSpec[S,T].Build()` + `render.NormLimit`**：列表信封的唯一形状 ——
+  filter → map → sort → truncate → count，`total` = 匹配数，`Max<=0` 无上限，
+  `Less=nil` 保源序，动态 Note 在 Build() 后设；`NormLimit` 走 oekit pagination 归一。
+- **`httpapi.ServeOptions` + `httpapi.Run` / `httpapi.Start`**：两个服务共用的 serve
+  生命周期（`serve` = stdio + 可选随行 HTTP；`serve http` = 信号等待 + 5s 优雅关闭；
+  `Start` 回真端口）。两个服务各自的 `startHTTP` / `serveHTTP` 拷贝收编进来（两份拷贝
+  的日志措辞已经漂了）。
+- **`reg.CatalogueTable(w, specs, hint)`**：`tools` 子命令的目录表格；conditional 确认的
+  Hint 经回调传入（policy 表在服务侧，底座不依赖服务）。
+- **`testsupport.OpenAPICheck` + `CheckOpenAPI`**：两个服务共用的 OpenAPI 守卫身
+  （首差异行、版本 hint、非空探针）—— 守卫两仓各一份就会漂。
+- **守卫与变异**：`script/mutate-primitive-guards.py` **13 条变异全红**（list 流水线 ×4、
+  枚举两表对账与钉词 ×2、Rehearsal、GateDenial、CatalogueTable、Start 回真端口、
+  serve http 缺地址 ×2（含「示例端口必须来自 ServeOptions.ExampleAddr」—— 共用文案
+  硬编码某一个面的端口，会把另一个面的操作员指去错误的面）、firstDiffLine）。
+
+### 修复
+
 ## [0.3.0] - 2026-11-04
 
 ### 变更

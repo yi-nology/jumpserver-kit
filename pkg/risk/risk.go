@@ -138,6 +138,27 @@ func RequiresConfirmation(c jms.CommandClass) bool {
 	return c == jms.CommandClass_DANGEROUS
 }
 
+// Rehearsal answers the question every dry run and every refusal answers
+// the same way: would this command run, and if not, what is missing?
+//
+// A command runs when it needs no confirmation, or when the confirmation
+// is already there. When it would not run, the answer carries the one
+// sentence that tells the caller what to do about it.
+//
+// ⚠️ The WORDING is a cross-server contract: the management plane and the
+// execution plane answer the same question ("would this run?"), and an
+// agent that reads one of them has to read the other the same way. The
+// sentence is built HERE, once — the planes each used to spell it for
+// themselves, and one of them hard-coded "DANGEROUS" into a sentence that
+// was supposed to name the class it actually found.
+func Rehearsal(c jms.CommandClass, confirmed bool) (would bool, blocked string) {
+	would = !RequiresConfirmation(c) || confirmed
+	if !would {
+		blocked = "classified " + c.String() + "; re-call with confirm=true to execute"
+	}
+	return would, blocked
+}
+
 // destructive reports whether one invocation is irreversible.
 //
 // The rules are on the command NAME and its arguments, because that is what

@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/oagentkit/guardx/invoke"
 	"github.com/oagentkit/guardx/toolfail"
 )
 
@@ -83,6 +84,22 @@ func classForStatus(status int) toolfail.Class {
 // Policy returns the retry policy that applies to err.
 func Policy(err error) toolfail.Policy {
 	return toolfail.PolicyOf(Class(err))
+}
+
+// GateDenial returns the gate's own denial when err IS one.
+//
+// It is the ONE place this question is answered: pkg/reg reads it to give
+// the caller the gate's own sentence, and pkg/audit reads it to keep the
+// gate's stop out of the "what broke" column. Two packages, one judge.
+//
+// ⚠️ The type is matched EXACTLY, not with errors.As: the chain returns
+// the gate's denial as it is, and a tool error that happens to WRAP one is
+// a different thing — it must not be read as the gate's wording (that
+// would tell the caller "the gate stopped it" when the gate let it through
+// and the tool broke).
+func GateDenial(err error) (*invoke.DenyError, bool) {
+	deny, ok := err.(*invoke.DenyError)
+	return deny, ok
 }
 
 // RetryAfter returns the wait the server asked for, if it asked for one.

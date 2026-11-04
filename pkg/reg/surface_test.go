@@ -60,8 +60,8 @@ func TestCallToolGoesThroughTheGate(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("a confirm-gated tool without confirm=true must be refused")
 	}
-	if !strings.Contains(textOf(res), "set confirm=true") {
-		t.Fatalf("the refusal must carry the tool's own sentence, got %q", textOf(res))
+	if !strings.Contains(render.ResultText(res), "set confirm=true") {
+		t.Fatalf("the refusal must carry the tool's own sentence, got %q", render.ResultText(res))
 	}
 
 	res, err = r.CallTool(context.Background(), "probe", "surface_echo", json.RawMessage(`{"message":"hi","confirm":true}`))
@@ -69,10 +69,10 @@ func TestCallToolGoesThroughTheGate(t *testing.T) {
 		t.Fatalf("confirmed call: %v", err)
 	}
 	if res.IsError {
-		t.Fatalf("the confirmed call must run, got %q", textOf(res))
+		t.Fatalf("the confirmed call must run, got %q", render.ResultText(res))
 	}
-	if textOf(res) != "hi" {
-		t.Fatalf("tool answer = %q, want hi", textOf(res))
+	if render.ResultText(res) != "hi" {
+		t.Fatalf("tool answer = %q, want hi", render.ResultText(res))
 	}
 	if len(records) != 2 {
 		t.Fatalf("trail lines = %d, want 2 (the refusal leaves a line too)", len(records))
@@ -84,18 +84,10 @@ func TestCallToolGoesThroughTheGate(t *testing.T) {
 	}
 }
 
-// textOf here is the local reader of a result's text; pkg/httpapi has its
-// own copy for its envelope. (Both are three lines; a shared one would put
-// a wire detail of the REST face into pkg/reg.)
-func textOf(res *mcp.CallToolResult) string {
-	parts := []string{}
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
+// The result's text is read with the repository's one definition of it:
+// render.ResultText. (There used to be a local copy here and another in
+// pkg/httpapi — two ideas of "what did the tool say", one taking the first
+// block and one joining them all.)
 
 func TestSchemaCapturesTheDeclaredShapes(t *testing.T) {
 	records := []Record{}

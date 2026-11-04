@@ -11,6 +11,7 @@ package render
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -47,4 +48,25 @@ func Err(err error) (*mcp.CallToolResult, any, error) {
 // nesting fmt.Errorf inside Err.
 func Failf(format string, a ...any) (*mcp.CallToolResult, any, error) {
 	return Err(fmt.Errorf(format, a...))
+}
+
+// ResultText is the result's text, joined from every text block it carries.
+//
+// It is the ONE definition of "what did the tool say": the audit trail
+// reads it (pkg/reg's summary) and the REST face serves it (pkg/httpapi).
+// They used to hold one definition each — the trail took the FIRST block,
+// the REST face joined them all — so a multi-block answer was recorded
+// as only its first sentence while the same call was served in full.
+// One tool, one answer, one text: every block, joined with a newline.
+func ResultText(res *mcp.CallToolResult) string {
+	if res == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(res.Content))
+	for _, c := range res.Content {
+		if t, ok := c.(*mcp.TextContent); ok {
+			parts = append(parts, t.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }

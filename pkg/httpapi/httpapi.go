@@ -29,6 +29,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yi-nology/jumpserver-kit/pkg/reg"
+	"github.com/yi-nology/jumpserver-kit/pkg/render"
 )
 
 // RestCaller is the audit trail's self-reported client name for calls that
@@ -126,35 +127,14 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// toolEntry is one catalogue entry on the REST face.
-type toolEntry struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Risk        string          `json:"risk"`
-	Confirm     *string         `json:"confirm,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema,omitempty"`
-	// OutputSchema is absent when the tool did not declare the shape of
-	// its answer — "not declared" and "declared as anything" are two
-	// different promises.
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-}
-
 // tools answers the catalogue: every tool with its risk, its confirmation
 // rule and its declared shapes.
+//
+// The rows are assembled by the registry (reg.Catalogue) — it is the one
+// place that holds a tool's spec and its schemas together. This face only
+// serialises them.
 func (s *Server) tools(w http.ResponseWriter, _ *http.Request) {
-	entries := []toolEntry{}
-	for _, spec := range s.reg.Specs() {
-		in, out, _ := s.reg.Schema(spec.Name)
-		entries = append(entries, toolEntry{
-			Name:         spec.Name,
-			Description:  spec.Description,
-			Risk:         spec.Risk.String(),
-			Confirm:      spec.Confirm,
-			InputSchema:  in,
-			OutputSchema: out,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"tools": entries})
+	writeJSON(w, http.StatusOK, map[string]any{"tools": s.reg.Catalogue()})
 }
 
 // InvokeResult is the REST face's answer to one tool call.
@@ -176,7 +156,7 @@ type InvokeResult struct {
 // an MCP client would put in params.arguments.
 func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if !s.hasTool(name) {
+	if !s.reg.Has(name) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such tool: " + name})
 		return
 	}
@@ -213,36 +193,15 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, InvokeResult{
 		Tool:       name,
 		IsError:    res.IsError,
-		Text:       textOf(res),
+		Text:       render.ResultText(res),
 		Structured: res.StructuredContent,
 	})
 }
 
-// hasTool reports whether the catalogue holds that name.
-func (s *Server) hasTool(name string) bool {
-	for _, spec := range s.reg.Specs() {
-		if spec.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-// textOf joins a result's text content. A tool answers in one JSON block,
-// but the envelope carries the text as text — a caller that wants the
-// structure reads `structured`.
-func textOf(res *mcp.CallToolResult) string {
-	if res == nil {
-		return ""
-	}
-	parts := []string{}
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
+// The result's text is read with the one definition the repository has
+// for it: render.ResultText (a tool answers in one JSON block, but the
+// envelope carries the text as text — a caller that wants the structure
+// reads `structured`).
 
 // writeJSON writes one JSON answer.
 func writeJSON(w http.ResponseWriter, code int, v any) {

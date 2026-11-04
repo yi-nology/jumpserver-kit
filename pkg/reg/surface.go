@@ -77,6 +77,54 @@ func (r *Registry) Schema(name string) (input, output json.RawMessage, ok bool) 
 	return s.input, s.output, true
 }
 
+// Has reports whether the catalogue holds that name.
+//
+// It is the one membership test: the HTTP face asks it before it serves a
+// call, and walking the spec list by hand was a second idea of what
+// "registered" means.
+func (r *Registry) Has(name string) bool {
+	_, ok := r.schemas[name]
+	return ok
+}
+
+// CatalogueEntry is one tool's catalogue row: its name, its description,
+// its risk and confirmation rule, and the shapes it declared.
+//
+// The JSON names are the REST catalogue's contract (pkg/httpapi serves
+// these rows verbatim), and they live here because the row ASSEMBLY lives
+// here: the registry is the one place that holds the spec and the schemas
+// together, and a face that re-derived the row from the two was a second
+// assembler waiting to drift.
+type CatalogueEntry struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Risk        string          `json:"risk"`
+	Confirm     *string         `json:"confirm,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	// OutputSchema is absent when the tool did not declare the shape of
+	// its answer — "not declared" and "declared as anything" are two
+	// different promises.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+}
+
+// Catalogue returns every registered tool as its catalogue row, in
+// registration order.
+func (r *Registry) Catalogue() []CatalogueEntry {
+	out := make([]CatalogueEntry, 0, len(r.specs))
+	for _, spec := range r.specs {
+		in, declared, _ := r.Schema(spec.Name)
+		out = append(out, CatalogueEntry{
+			Name:         spec.Name,
+			Description:  spec.Description,
+			Risk:         spec.Risk.String(),
+			Confirm:      spec.Confirm,
+			InputSchema:  in,
+			OutputSchema: declared,
+		})
+	}
+	return out
+}
+
 // StreamableHTTPHandler serves this registry over MCP's streamable HTTP
 // transport.
 //

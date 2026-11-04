@@ -2502,42 +2502,32 @@ func TestTheOldTrailFilesArePruned(t *testing.T) {
 	}
 }
 
-// The arguments must still be VALID JSON after the trail scrubbed them.
+// Scrubbing the arguments keeps the document: the mask lands on the VALUE,
+// the separators around it survive, and the column is still parseable JSON.
 //
-// ⚠️ The trail scrubs more than once in production: the registry scrubs
-// before handing the record over, and the trail scrubs again for its two
-// exits. logredact is not idempotent — it eats the closing quote of the
-// value it masks — so the second pass used to eat the separator after it
-// too, and the arguments column of the trail stopped being JSON.
-//
-// ⚠️ The credentials were still masked, so this was never a leak. It was
-// worse in one way: the evidence could not be parsed, and a reader had no
-// way to tell a broken row from a redacted one.
-// The arguments are scrubbed EXACTLY ONCE.
-//
-// ⚠️ They used to be scrubbed twice (the registry, and then the trail) —
-// and the second pass ate the separator after the mask, so the column
-// lost a character it needed. The registry no longer scrubs them: the
-// trail does, once, and the two exits read the same value.
-//
-// ⚠️ The consequence is that the column is a REDACTED TEXT and not a
-// parsable JSON document: the scrubber replaces `"password":"x"` with
-// `"password=****` (it eats the closing quote).
-func TestTheArgumentsAreScrubbedExactlyOnce(t *testing.T) {
+// ⚠️ The arguments are scrubbed more than once in production: the registry
+// scrubs before handing the record over, and the trail scrubs again for its
+// two exits. That is safe ONLY because the combined scrubber
+// (pkg/redact.Scrub) is idempotent: the shape rules alone eat the closing
+// quote of the value they mask, and a second pass of those eats the
+// separator after it too. (This test used to claim the arguments were
+// scrubbed "exactly once" and that the registry had stopped scrubbing;
+// the registry scrubs, the trail scrubs, and the two passes agree.)
+func TestScrubbingTheArgumentsKeepsTheDocument(t *testing.T) {
 	in := `{"asset":"node-071","command":"hostname","password":"hunter2"}`
 	once := scrubArgs(in)
 	if strings.Contains(once, "hunter2") {
 		t.Errorf("the credential survived: %s", once)
 	}
-	// ⚠️ ONE pass, and only one: the separator AFTER the mask is still
-	// there. A second pass would eat it.
+	// ⚠️ The separator AFTER the mask is still there: the mask replaces
+	// the VALUE and keeps the structure around it intact.
 	if !strings.Contains(once, `password":"****`) {
 		t.Errorf("the arguments do not carry the mask: %s", once)
 	}
 	// ⚠️ And the result is STILL valid JSON: the backstop replaces the
 	// VALUE and keeps the structure, so the column a reader parses does
-	// not fall apart. (A second pass over the text would eat the closing
-	// quote — and that is what the mutation "脱敏洗两次" checks.)
+	// not fall apart. (The combined scrubber keeps the quote and the structure; the shape
+	// rules alone would eat it — see pkg/redact.Scrub.)
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(once), &parsed); err != nil {
 		t.Errorf("the arguments are not valid JSON after scrubbing: %v (%s)", err, once)
@@ -2545,12 +2535,19 @@ func TestTheArgumentsAreScrubbedExactlyOnce(t *testing.T) {
 	if !strings.Contains(once, `"asset":"node-071"`) {
 		t.Errorf("the arguments lost the fields around the mask: %s", once)
 	}
-	// ⚠️ The separator AFTER the mask is the one a second pass eats, so
-	// that is the one to look at: the mask has to be followed by the
-	// closing quote or comma of the field it was in.
+	// ⚠️ The separator AFTER the mask is where a destructive mask shows up
+	// first: the mask has to be followed by the closing quote or comma of
+	// the field it was in.
 	tail := once[strings.Index(once, `"password":"****"`)+len(`"password":"****"`):]
 	if tail == "" || (tail[0] != '}' && tail[0] != ',') {
 		t.Errorf("the separator after the mask is gone: %s", once)
+	}
+
+	// ⚠️ And a SECOND pass changes nothing: the registry and the trail
+	// both scrub, and that is only safe because the combination is
+	// idempotent (pkg/redact.Scrub says why). Pin it at this exit too.
+	if twice := scrubArgs(once); twice != once {
+		t.Errorf("the scrubber is not idempotent: %q became %q", once, twice)
 	}
 }
 

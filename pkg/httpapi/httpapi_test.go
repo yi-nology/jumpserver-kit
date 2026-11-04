@@ -118,7 +118,7 @@ func TestToolsListsTheCatalogue(t *testing.T) {
 		t.Fatalf("tools = %d: %s", w.Code, w.Body.String())
 	}
 	var out struct {
-		Tools []toolEntry `json:"tools"`
+		Tools []reg.CatalogueEntry `json:"tools"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("catalogue is not JSON: %v", err)

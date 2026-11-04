@@ -22,6 +22,7 @@ import (
 	"github.com/oagentkit/guardx/invoke"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 	"github.com/yi-nology/jumpserver-kit/pkg/fspath"
 	"github.com/yi-nology/jumpserver-kit/pkg/redact"
 	"github.com/yi-nology/jumpserver-kit/pkg/reg"
@@ -249,7 +250,9 @@ func allowed(rec reg.Record) bool {
 //   - the error's EXACT type: the chain returns the gate's denial as
 //     `*invoke.DenyError` and nothing else, while a tool error that
 //     happens to WRAP one is a different type — so it is not read as the
-//     gate's wording ("the gate stopped it" when it did not).
+//     gate's wording ("the gate stopped it" when it did not). The
+//     exact-match judgement is one function (errs.GateDenial), shared
+//     with pkg/reg.
 //
 // Either sign alone would do; both together mean neither can be faked.
 func toolFailed(rec reg.Record) bool {
@@ -268,7 +271,7 @@ func toolFailed(rec reg.Record) bool {
 			return false
 		}
 	}
-	if _, isDeny := gate.Err.(*invoke.DenyError); isDeny {
+	if _, isDeny := errs.GateDenial(gate.Err); isDeny {
 		// The gate stopped it, and the trail says so in the stages.
 		return false
 	}
@@ -357,27 +360,17 @@ func scrub(text string) string {
 	return redact.Scrub(text)
 }
 
-// scrubArgs scrubs the ARGUMENTS, and is safe to run twice.
+// scrubArgs scrubs the ARGUMENTS.
 //
-// ⚠️ The scrubber is NOT idempotent on its own: logredact rewrites
-// `"password":"x"` into `"password=****` — it eats the closing quote,
-// so the result is no longer valid JSON, and a SECOND pass eats the
-// separator after the marker too (`{"password=****,"tool":…` becomes
-// `{"password=****"tool":…`).
+// It is scrub(text) — the arguments are a free-text column like the
+// others, with one extra duty: the two exits read the SAME scrubbed value,
+// so the log line and the file line are byte-identical.
 //
-// ⚠️ The arguments are scrubbed here, and the two exits read the same
-// value — so the log line and the file line are byte-identical.
-//
-// ⚠️ The registry scrubs them as well, and that is safe because the
-// COMBINED scrubber is idempotent on valid JSON: the shape rules alone
-// are not (they eat the closing quote of the value they mask, and a
-// second pass eats the separator after that).
-//
-// ⚠️ ⚠️ The guarantee is about credentials in QUOTED KEY-VALUE PAIRS whose
-// KEY is in the backstop's word list: a credential the upstream rules
-// cannot match at all — one containing `&`, or one in prose, or one in an
-// escaped JSON string — is outside it, and the prose shape is outside it
-// in EVERY column.
+// ⚠️ The registry scrubs the arguments before handing the record over, and
+// this scrubs them again. Two passes are safe ONLY because the combined
+// scrubber is idempotent. That invariant — and what each half of the
+// scrubber covers (prose forms, escaped JSON, bare values) — lives in ONE
+// place: pkg/redact.Scrub. Do not restate it here; point at it.
 func scrubArgs(text string) string {
 	return scrub(text)
 }

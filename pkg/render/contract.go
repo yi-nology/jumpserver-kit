@@ -84,11 +84,33 @@ func Schema[T any]() *jsonschema.Schema {
 // the agent reads and what the skills document. Without this the schema would
 // say "integer" while the answer says "ok", and every diagnosis tool would
 // fail its own contract.
-var typeSchemas = map[reflect.Type]*jsonschema.Schema{
-	reflect.TypeFor[jms.Status](): {
-		Type: "string",
-		Enum: []any{"ok", "warn", "fail"},
-	},
+//
+// ⚠️ EVERY generated enum is pinned here — not just Status. A pin that
+// covered one enum and not the next meant the contract said "integer" for a
+// field whose answer is the word "DANGEROUS" (CommandClass) or "read"
+// (Risk): the tools that answered in those words were failing their own
+// declared shape.
+//
+// ⚠️ The names come from the enum's own value list (model/jms), which the
+// MarshalJSON glue is built from too — so the schema and the wire format
+// cannot drift apart. What CAN still drift is the value list against the
+// generated constants, and that pair is reconciled by the guard in
+// model/jms/enum_values_test.go.
+var typeSchemas = wireSchemas(jms.WireEnums)
+
+// wireSchemas turns the vocabulary's wire names into the pins the schema
+// check runs against. It is derived, not spelled out: the names come from
+// model/jms.WireEnums, which the MarshalJSON glue is built from too.
+func wireSchemas(m map[reflect.Type][]string) map[reflect.Type]*jsonschema.Schema {
+	out := make(map[reflect.Type]*jsonschema.Schema, len(m))
+	for typ, names := range m {
+		enum := make([]any, len(names))
+		for i, n := range names {
+			enum[i] = n
+		}
+		out[typ] = &jsonschema.Schema{Type: "string", Enum: enum}
+	}
+	return out
 }
 
 // relax allows additional properties on every object in the schema.
