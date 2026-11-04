@@ -3,7 +3,8 @@
 两个 MCP 服务（[管理面](https://github.com/yi-nology/jumpserver-mgmt)、
 [执行面](https://github.com/yi-nology/jumpserver-exec)）共同认的那一部分：
 JumpServer 协议层、工具注册与门禁、HTTP 面（REST + MCP over streamable HTTP）、
-结果整形与输出契约、工具调用留痕、凭据脱敏、命令风险分类、失败分类、共用词汇。
+RPC 面（kitex/thrift）、serve 生命周期、结果整形与输出契约、工具调用留痕、
+凭据脱敏、命令风险分类、失败分类、共用词汇。
 
 **这是一个库，不是可执行程序。** 本仓没有二进制，也没有配置。
 
@@ -34,6 +35,9 @@ JumpServer 协议层、工具注册与门禁、HTTP 面（REST + MCP over stream
 | `pkg/jmsapi` | **JumpServer 协议层**：端点表、认证头、连接令牌体、响应形状、委派凭据、版本协商、重试与限流 |
 | `pkg/reg` | **工具注册与门禁**（唯一注册入口）：confirm 规则、风险侧、留痕挂钩、schema 捕获、`CallTool` / `StreamableHTTPHandler` |
 | `pkg/httpapi` | **HTTP 面**：REST `/api/v1/…` + MCP over streamable HTTP `/mcp`，与 stdio 共用同一注册表（同一道门禁、同一份留痕）；Bearer 认证（常量时间比较）、OpenAPI 3.1 文档生成 |
+| `pkg/rpcapi` | **RPC 面（kitex/thrift）**：注册表的第三张脸——`Invoke(tool, args, token, caller)` + `Catalogue(token)`，同一扇门同一道门禁同一份留痕；token 逐调用常量时间校验，无匿名访问；bootstrap 栅栏（自调用探针）关死 kitex 启动/停止竞态窗 |
+| `pkg/faces` | **serve 生命周期（唯一主人）**：子命令变数据（stdio+rides / http / rpc / all），常驻模式组合在 `oekit/bootstrap` 上 |
+| `idl/jmsrpc` + `kitex_gen/jmsrpc` | RPC 契约与生成物（kitex 工具生成，**入库**；`script/gen-rpc.sh`） |
 | `pkg/render` | **结果整形 + 输出契约**：从 Go 类型派生 JSON Schema，返回前校验 |
 | `pkg/risk` | **命令风险分类**：用真 shell 解析器把命令解析成 AST，再按策略表判只读性（不是字符串匹配） |
 | `pkg/audit` | **工具调用留痕**：每次调用一行 JSONL（调了什么、参数是什么、门禁每一段的判定与理由、放行与否、耗时） |
