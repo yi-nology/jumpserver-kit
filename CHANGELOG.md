@@ -11,6 +11,35 @@
 
 ### 修复
 
+## [0.1.4] - 2026-11-04
+
+### 变更
+
+- ⚠️ **入口层从 `cmd/<binary>/` 搬到仓根**（两个服务仓跟着搬）⇒
+  「最外层」的判据变了：`pkg/arch` 的 `CheckBinariesAreOutermost`
+  原来判的是「`cmd/` 谁都不许 import」，现在判的是「**仓根与 `cmd/`** 两处
+  都只许向里叫」⇒ 仓根那个 `package main` 也进了这条守卫。
+- `CheckBinariesAreOutermost` 的判据改按 **module path** 说（仓根包 =
+  module path 本身，`cmd/` = module path + `/cmd/`），不再靠「`cmd/` 这个
+  目录名」⇒ 目录名与 module path 不必一致。
+- `pkg/contractscan` 的守卫体注释跟着改：服务仓的契约守卫根从
+  `biz/jumpserver` 变成 `biz`。
+
+### 新增
+
+- **`pkg/arch` 的 `CheckTheEntryLayerIsOneBinaryAtTheRoot`**：仓里
+  **只有一个** `package main`，而且它在**仓根**；`cmd/` 下**没有**
+  `package main`（子命令是入口层 import 的普通包，不是各自的二进制）
+  ⇒ 「一个仓一个二进制」从约定变成机械守卫。
+- **`pkg/arch` 的 `PackageNameOf`**：读一个 Go 文件的包子句。
+
+### 修复
+
+- ⚠️ **`CheckBinariesAreOutermost` 漏掉了仓根本身**：入口层搬到仓根
+  之后，只判 `cmd/` 的话，仓根那个 `package main` 就是「最外层」却没进
+  守卫。⚠️ Go 本来就不许 import 一个 main 包 ⇒ 编译器已经拦了一道，
+  但**守卫里那一格是空的** —— 而空着的守卫会让人以为它还在管这件事。
+
 ## [0.1.3] - 2026-11-04
 
 ### 修复

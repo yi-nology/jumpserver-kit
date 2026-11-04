@@ -6,8 +6,8 @@
 
   - 底座的审计留痕（pkg/audit）要由**服务仓**的守卫盯着（答复守卫与留痕
     守卫在服务仓里）⇒ 变异脚本要能同时改**底座**的源码、跑**服务仓**的测试。
-  - 委派凭据的门禁一边在管理面（biz/jumpserver/handler/delegation.go）、
-    一边在执行面（internal/exec/koko/token.go），而门禁的守卫在服务仓。
+  - 委派凭据的门禁一边在管理面（biz/handler/delegation.go）、
+    一边在执行面（internal/repository/koko/token.go），而门禁的守卫在服务仓。
 
 ⇒ 这些脚本与守卫都需要同一份「工作集」的定义。
 
@@ -93,6 +93,34 @@ def locate(relpath, roots_):
             "⚠️  %s 在多个仓里都有：%s ⇒ 不猜，报出来"
             % (relpath, ", ".join(hits)))
     return hits[0]
+
+
+def repo_root_named(name, roots_):
+    """工作集里**按名字**认出某个仓的根。
+
+    ⚠️ 为什么需要它：重构之后两个服务仓的仓内相对路径**会撞名**
+    （两个仓都有 `biz/handler/`）⇒ locate 会拒绝猜（那是它的正确行为）
+    ⇒ 需要一个能指名道姓地说「在执行面那个仓里」的入口。
+    """
+    for r in roots_:
+        if os.path.basename(r) == name:
+            return r
+    raise SystemExit(
+        "⚠️  工作集里没有仓 %s（工作集：%s）" % (name, ", ".join(roots_)))
+
+
+def locate_in(repo_name, relpath, roots_):
+    """在**指定的**仓里找「仓内相对路径」。
+
+    ⚠️ 它与 locate 的区别只有一个：locate 在工作集里找（撞名就拒绝猜），
+    locate_in 在**点名**的那个仓里找 ⇒ 撞名不再是问题。
+    """
+    root = repo_root_named(repo_name, roots_)
+    p = os.path.join(root, relpath)
+    if not os.path.exists(p):
+        raise SystemExit(
+            "⚠️  仓 %s 里找不到 %s" % (repo_name, relpath))
+    return p
 
 
 def repo_of(path, roots_):

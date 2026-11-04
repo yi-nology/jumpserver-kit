@@ -42,12 +42,18 @@ func TestTheKitHasNoBareGoroutines(t *testing.T) {
 	arch.CheckNoBareGoroutines(t, kitRoot(t))
 }
 
-// TestTheKitHasNoBinaryDirectory：kit 是**库**，不是程序。
+// TestTheKitHasNoEntryLayer：kit 是**库**，不是程序。
 //
 // ⚠️ 原仓那条守卫是「cmd/ 谁都不许 import」；在 kit 上它没有对象
-// （kit 没有 cmd/），所以 kit 自己的判据是**不许有 cmd/**：kit 一旦长出
-// 入口层，它就开始有「谁把它当库用」的问题，而它是个库。
-func TestTheKitHasNoBinaryDirectory(t *testing.T) {
+// （kit 没有 cmd/），所以 kit 自己的判据是**不许有入口层**：
+//
+//   - 不许有 cmd/（子命令层）；
+//   - 仓根也不许有 package main（入口层搬到了仓根 ⇒ 那一条也得钉住）。
+//
+// ⚠️ 为什么仓根那一条要写出来：kit 是个库，它被**别人** import。
+// 一旦仓根长出 package main，kit 就有了自己的二进制 ⇒ 它不再只是一个库，
+// 而「谁 install 它」这件事会变成一个没人决定过的问题。
+func TestTheKitHasNoEntryLayer(t *testing.T) {
 	root := kitRoot(t)
 	dir := filepath.Join(root, "cmd")
 	if _, err := os.Stat(dir); err == nil {
@@ -55,9 +61,29 @@ func TestTheKitHasNoBinaryDirectory(t *testing.T) {
 			"cmd/ is the outermost layer of a service, and the kit must not have one",
 			arch.Relative(root, dir))
 	}
+	files, err := arch.GoFiles(root)
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	for _, f := range files {
+		name, err := arch.PackageNameOf(f)
+		if err != nil {
+			t.Fatalf("parse %s: %v", arch.Relative(root, f), err)
+		}
+		if name != "main" {
+			continue
+		}
+		t.Errorf("%s is a package main: the kit is a library, not a program; "+
+			"the entry layer of a service lives at its repository root, and the kit "+
+			"must not have one", arch.Relative(root, f))
+	}
 }
 
 // TestTheKitBinariesAreOutermost 让入口层不要变成一个别人依赖的库。
+//
+// ⚠️ 在 kit 上这条守卫是空的（kit 没有入口层）⇒ 它在这儿是「不许有人
+// 把 kit 当入口层用」的那一半：万一哪天有人在 kit 里 import 了某个
+// package main，那条 import 会被这里挡住。
 func TestTheKitBinariesAreOutermost(t *testing.T) {
 	arch.CheckBinariesAreOutermost(t, kitRoot(t), arch.ModuleKit)
 }

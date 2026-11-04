@@ -143,7 +143,7 @@
 ### ⑪ 两套实现会漂，而漂的方向是「**一个抹一个不抹**」
 
 - 有过**两套**脱敏：留痕那份（底座仓的 `pkg/redact`）与管理面答复那份
-  （管理面仓的 `biz/jumpserver/handler/redact.go`）。答复那份自己带一份词表 ⇒ 与留痕那份
+  （管理面仓的 `biz/handler/redact.go`）。答复那份自己带一份词表 ⇒ 与留痕那份
   差 **14 条**（`passphrase`/`credential`/`cookie`/`kubeconfig`/`id_token`/
   `refresh_token`/…），而且**完全不认 JSON 形态** ⇒ `{"password":"x"}` 原样
   进 agent 的上下文窗口（实测 12/12 全漏）。

@@ -138,6 +138,22 @@ func PackagesNamed(root, name string) ([]string, error) {
 	return out, nil
 }
 
+// PackageNameOf returns the package clause of a Go file.
+//
+// ⚠️ It reads the clause, not the directory name: a directory and the
+// package inside it are allowed to differ (that happens on purpose in this
+// repository: a directory is renamed and the package keeps its old name
+// until the rename is finished). A guard that asked the directory would
+// answer a different question than the one it means to ask.
+func PackageNameOf(path string) (string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly)
+	if err != nil {
+		return "", err
+	}
+	return f.Name.Name, nil
+}
+
 // PackageOf returns the package name of an import path — the last element,
 // with the major-version suffix removed (".../model/jms/v2" → "jms").
 func PackageOf(importPath string) string {

@@ -48,7 +48,8 @@ type Scope struct {
 	// 什么目录名、放在哪个盘符下，它都是同一个 module。
 	//
 	// ⚠️ 它只对**module 根**成立（根目录里有 go.mod）。服务仓的那份契约守卫
-	// 的根是 `biz/jumpserver` 这样的**子目录** ⇒ 那里用 RootBase。
+	// 的根是 `biz` 这样的**子目录**（契约模型在 `biz/model/<pkg>/`）
+	// ⇒ 那里用 RootBase。
 	Module string
 
 	// Roots are the EXTRA trees to scan, on top of this repository's own

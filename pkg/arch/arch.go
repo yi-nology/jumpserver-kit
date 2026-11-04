@@ -66,23 +66,84 @@ func bareGoroutines(t *testing.T, path string) []int {
 // ⚠️ 原仓的这条守卫是「cmd/ 谁都不许 import」。拆仓之后它按 module path
 // 说：某个仓的 cmd/ 只有它自己许 import。
 //
-// ⚠️ kit 没有 cmd/（kit 是库）⇒ 这条守卫在 kit 上是空的。kit 那边的
-// 「不许有 cmd/」是 kit 自己的判据，留在 kit 的守卫里，不在这里编。
+// ⚠️ **入口层搬到仓根之后**（main.go / server.go / init.go / workers.go /
+// shutdown.go 是仓根那个 package main，子命令在 cmd/ 下），「最外层」
+// 变成**两处**：仓根本身与 cmd/。⇒ 判据跟着变成：这两处只许向里叫，
+// 谁都不许 import 它们。
+//
+// ⚠️ 为什么仓根本身也要算进去：仓根那个 package 是 `main`，Go 本来就不许
+// import 它 ⇒ 那一条在编译器那里已经成立。但**写出来**是有用的：它把
+// 「最外层是哪几处」这件事说成一句话，而不是让读者从两处代码里推。
+// 而 cmd/ 下的子命令包是**普通的包**（入口层 import 它们），它们**能**
+// 被 import ⇒ 那一条编译器不管 ⇒ 它才是这条守卫真正的牙齿。
+//
+// ⚠️ kit 没有 cmd/、仓根也没有 package main（kit 是库）⇒ 这条守卫在 kit
+// 上是空的。kit 那边的「不许有入口层」是 kit 自己的判据，留在 kit 的守卫里，
+// 不在这里编。
 func CheckBinariesAreOutermost(t *testing.T, root, modulePath string) {
 	t.Helper()
 	root = absRoot(t, root)
+	tree := Tree{Root: root, ModulePath: modulePath}
 	cmdPrefix := modulePath + "/cmd/"
 	for _, f := range goFilesOrFatal(t, root) {
-		if strings.HasPrefix(ImportPathOf(modulePath, root, f), cmdPrefix) {
+		// The entry layer may call inward.
+		self := tree.PackagePath(f)
+		if self == modulePath || strings.HasPrefix(self, cmdPrefix) {
 			continue
 		}
 		for _, imp := range importsOrFatal(t, f) {
-			if strings.HasPrefix(imp, cmdPrefix) {
+			if imp == modulePath || strings.HasPrefix(imp, cmdPrefix) {
 				t.Errorf("%s imports a binary entry point (%s): "+
-					"cmd/ is the outermost layer; it calls inward, never the other way",
+					"the entry layer (the repository root and cmd/) is the outermost layer; "+
+					"it calls inward, never the other way",
 					relToInternal(root, f), imp)
 			}
 		}
+	}
+}
+
+// CheckTheEntryLayerIsOneBinaryAtTheRoot 让入口层是**仓根那一个** package main。
+//
+// ⚠️ 入口层搬到仓根之后，这一层有两件事要钉住：
+//
+//  1. **二进制只有一个**，在**仓根**（`go install …@latest` 装出来的就是它）；
+//  2. `cmd/` 下**没有** package main —— 那些是**子命令**（入口层 import
+//     的普通包），不是各自的二进制。
+//
+// ⚠️ 为什么第 2 条要写出来：编译器会挡住「cmd/ 下的 main 被仓根 import」
+// （main 包不可 import），但**挡不住**「cmd/ 下多了一个二进制」——
+// `go build ./...` 会把它一起编出来，于是仓里就有了第二个入口，
+// 而发版脚本只发一个 ⇒ 那个二进制永远没人拿到，却已经躺在源码树里。
+//
+// ⚠️ 「仓根那个 package main」是**唯一**的 main：它一多（有人在子目录里
+// 又开了一个 main），发版脚本发的那个就不是全部了 ⇒ 而「哪些是全部」
+// 这件事没有人会记得去查。
+func CheckTheEntryLayerIsOneBinaryAtTheRoot(t *testing.T, root, modulePath string) {
+	t.Helper()
+	root = absRoot(t, root)
+	mains := map[string]bool{}
+	for _, f := range goFilesOrFatal(t, root) {
+		name, err := PackageNameOf(f)
+		if err != nil {
+			t.Fatalf("parse %s: %v", Relative(root, f), err)
+		}
+		if name != "main" {
+			continue
+		}
+		mains[filepath.Dir(f)] = true
+	}
+	if len(mains) == 0 {
+		t.Fatalf("this repository has no package main: the entry layer of a service " +
+			"repository is its root (main.go / server.go / init.go / workers.go / shutdown.go)")
+	}
+	for dir := range mains {
+		if dir == root {
+			continue
+		}
+		t.Errorf("%s is a package main, but this repository has exactly one binary and it "+
+			"lives at the root: cmd/ holds subcommands (packages the entry layer calls), "+
+			"not binaries of their own",
+			Relative(root, dir))
 	}
 }
 

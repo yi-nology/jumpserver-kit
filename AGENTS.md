@@ -39,13 +39,13 @@
 守卫在各自的仓里（服务仓的 `internal/arch/`）。
 
 **判断某个需求该改哪个**：
-- 要登记/修改资产、账号、授权 → **管理面仓**（`biz/jumpserver/`）
-- 要在机器上执行命令、传文件 → **执行面仓**（`biz/exec/`）
+- 要登记/修改资产、账号、授权 → **管理面仓**（`biz/`）
+- 要在机器上执行命令、传文件 → **执行面仓**（`biz/`）
 - 要改**门禁/契约/结果格式/留痕/脱敏/协议**（两个服务都受影响）→ **本仓**（`pkg/`）
 - 要改**某个工具返回什么形状** → 该服务自己的 `idl/<包名>/`（thrift）→ `script/gen-idl.sh` 生成 → 工具产出它
   ⚠️ **契约类型写了没人产出 = 契约不存在**（三个仓各有一道守卫盯着：
-  管理面 `biz/jumpserver/model/jmsms/contract_test.go`、
-  执行面 `biz/exec/model/jmsexec/contract_test.go`、
+  管理面 `biz/model/jmsms/contract_test.go`、
+  执行面 `biz/model/jmsexec/contract_test.go`、
   本仓 `model/jms/contract_test.go`）。
   加了新类型就要有工具真的产出它，否则它只是一段注释。
   三道守卫共用一个守卫身（本仓 `pkg/contractscan` 的
@@ -80,7 +80,7 @@
 ⚠️ ⚠️ **打 tag 之前，main 的 CI 必须已经绿。**
 踩过的坑：`v0.3.0` 是在 CI 还红的时候打的 ⇒ 那个 tag 缺一个源码文件
 （`.gitignore` 的 `coverage.*` 把同名源码 `coverage.go` 吞了）⇒
-`go install github.com/yi-nology/jumpserver-mcp/cmd/jumpserver-mcp@v0.3.0`
+`go install github.com/yi-nology/jumpserver-mcp@v0.3.0`
 **编译失败**，而**没有人收到通知**（tag 推上去不会让人看见 CI 红了）。
 ⇒ 顺序是：**推 main → 等 CI 绿 → 打 tag → 推 tag**。
 ⇒ 三个仓的 CI 都配了 `on: push: tags: ['v*']` ⇒ tag 也会跑一遍 CI，
@@ -167,7 +167,7 @@ hz 的 `router.go` / `router_gen.go` 在这里没有对应物：本仓没有 HTT
 **测试底座在 `pkg/testsupport`**：起一个内存会话、把答案读成 JSON、起名字、
 `MustLoad`（配置装载失败即 fail）。三个仓都用它（此前同样的会话搭建抄了
 6 遍，抄本会漂）。只有管理面才有的
-「打真堡垒机」那套在管理面仓的 `internal/jumpserver/livetest/`。唯一手写会话搭建的
+「打真堡垒机」那套在管理面仓的 `internal/repository/livetest/`。唯一手写会话搭建的
 地方是 `pkg/reg/registry_test.go` —— 那是注册表自己的测试，而 testsupport
 import 注册表，反过来 import 就是环。
 
@@ -196,7 +196,7 @@ import 注册表，反过来 import 就是环。
    - **SSH**：`github.com/oekit/network/sshx` —— `Dial`（连接/握手**两段界限** +
      调用方总预算 `Budget`）、`LoadSigner`、`DetectKeyType(ctx, path)`、
      `ParsePublicKey`、`PublicKeyType`、`StartKeepAlive`、`KeepAliveRequest`、
-     `ErrBusy`。执行面仓的 `internal/exec/koko/` 只留 koko 特有的部分
+     `ErrBusy`。执行面仓的 `internal/repository/koko/` 只留 koko 特有的部分
      （PTY/TUI 驱动、连接令牌、池化）。
    - **CLI**：`github.com/oekit/pkg/cli` —— 子命令分发 + 退出码 0/1/2 +
      **内建 help/version**（问帮助的退出码是 0，不是 2）+ 默认子命令 + 别名 +
@@ -284,11 +284,11 @@ import 注册表，反过来 import 就是环。
    - 工具本身（解码参数、编排调用、拼结果）→ 服务仓的 `biz/<面>/handler/`
    - 领域规则（「这个授权到底能不能让人进去」这类**判断**）→ 服务仓的 `biz/<面>/service/`
      ——写成**纯函数**，不碰网络，这样能离线单测
-   - 堡垒机的资源与数据 → 服务仓的 `internal/jumpserver/client/`
+   - 堡垒机的资源与数据 → 服务仓的 `internal/repository/`
    - URL 怎么拼、响应长什么样 → **本仓的 `pkg/jmsapi/`**（**别在别处再写一份**）
 
 1. **在服务仓的 `biz/<面>/handler/` 里写实现。** 按职责选文件（一个域一个文件）。
-   管理面 `biz/jumpserver/handler/`：
+   管理面 `biz/handler/`：
 
    | 文件 | 装什么 |
    |---|---|
@@ -310,7 +310,7 @@ import 注册表，反过来 import 就是环。
    | `transfer.go` | 文件传输留痕 |
    | `delegation.go` | 委派凭据 |
 
-   执行面 `biz/exec/handler/`：`exec.go`（单命令/连通性）、`transfer.go`（文件传输
+   执行面 `biz/handler/`：`exec.go`（单命令/连通性）、`transfer.go`（文件传输
    /多机/后台）、`inventory.go`（资产清单）、`plan.go`（演练的成本估算）、
    `dryrun.go`+`blocked.go`（演练与拒绝的答复）。
 
@@ -342,7 +342,7 @@ import 注册表，反过来 import 就是环。
    形状不对就报错，不会悄悄返回一个别的形状。列表类工具统一用
    `render.ListOf[行类型]` 信封（`count`/`total`/`truncated`/`items`/`note`）。
    ⚠️ 少了 `OutputSchema` 的工具会被服务仓的 `biz/<面>/router/policy_test.go` 拦下；
-   让列表的行退回自由 map 的，会被管理面的 `biz/jumpserver/router/shape_test.go` 拦下。
+   让列表的行退回自由 map 的，会被管理面的 `biz/router/shape_test.go` 拦下。
    ⚠️ **自由行的出口已经没有了**：`render.List`（行是自由 map）与
    `render.Object`（整个答复是自由 map）都已删除。写不出行类型就是契约没写完。
 
@@ -388,7 +388,7 @@ import 注册表，反过来 import 就是环。
 
    ⚠️ **写测试的形状只能对着假堡垒机验**：它们会改真数据，不能真调。
    假堡垒机是 `http.HandlerFunc`，按 `r.URL.Path` 分支
-   （见管理面 `biz/jumpserver/handler/contract_test.go` 的
+   （见管理面 `biz/handler/contract_test.go` 的
    `fakeBastionForWrites`）。对着它调一遍，schema 校验才会真的跑一遍 ——
    `jms_permission_grant` 的形状不符就是这样被抓出来的。
 
@@ -614,7 +614,7 @@ import 注册表，反过来 import 就是环。
 - ⚠️ **工具层要把带类型的错误原样交上去，别拍平**。`render.Failf("%v", err)` 会把
   错误变成一段文字 ⇒ **投递状态就没了** ⇒ 留痕只会说「它失败了」，不会说
   「它可能还在机器上跑着」—— 而那正是**永不重试**的那一格。
-  执行面用 `return fail(err)`（执行面仓 `biz/exec/handler/fail.go` ⇒ 把错误原样交上去）✓。
+  执行面用 `return fail(err)`（执行面仓 `biz/handler/fail.go` ⇒ 把错误原样交上去）✓。
   ⚠️ agent 看到的文字**一个字没变**（登记处把错误原样转成错误结果）✓。
 - **动作层结论是上游的原生件**（`guardx/invoke` 的 `Outcome{Refused,DryRun}`）：
   工具层把结论声明进 `invoke.Result.Outcome`，链原样抄进 `invoke.Record.Outcome`，
@@ -754,7 +754,7 @@ JSON 当场坏掉、留痕丢掉一条事实。⚠️ 它摘出去之后**原样
 `kubeconfig`/`id_token`/`refresh_token`/…），而且**完全不认 JSON 形态**
 ⇒ `{"password":"x"}` 原样进 agent 的上下文窗口（实测 12/12 全漏）。
 ⇒ 现在**只有词表**在底座（`IsCredentialKey`），**形状留在各自的服务里**
-（答复的形状归管理面仓的 `biz/jumpserver/handler/redact.go`）⇒ 底座不长出只有
+（答复的形状归管理面仓的 `biz/handler/redact.go`）⇒ 底座不长出只有
 一个服务用的函数（`pkg/arch` 的 `TestTheSharedBaseIsSharedByBoth`
 按**包**查这件事：只被一个服务**到达**的底座包就是那个服务的私有代码）。
 ⚠️ **要加词就加 `pkg/redact` 那一份** —— 别往答复路径里另加一条词表：
@@ -847,7 +847,7 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 | 单元测试 | `go test ./...` 必须全绿 |
 | 格式化 | `gofmt -l .` 无输出 |
 | 静态检查 | `go vet ./...` 无错 |
-| 工具数 | 管理面 **97**（`biz/jumpserver/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `biz/exec/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
+| 工具数 | 管理面 **97**（`biz/jumpserver/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `internal/service/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
 | 目录一致 | 策略表与注册表必须一一对应（`policy_test.go` 会查） |
 | 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（`internal/arch/answer_test.go`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |
@@ -889,7 +889,7 @@ require 并跑一遍它们的测试。**只跑本仓的测试不算交付。**
 
 - 提交前确认 `git status` 里**没有**构建产物、备份文件、二进制。
   ⚠️ **`git status` 是提交前的最后一道自查**，不是可选项：
-  `.gitignore` 的一个 `coverage.*` 就把源码文件 `biz/jumpserver/handler/coverage.go`
+  `.gitignore` 的一个 `coverage.*` 就把源码文件 `biz/handler/coverage.go`
   吞掉过 ⇒ 文件在磁盘上、在工作区里，但**不在提交里** ⇒ 发布出去的 tag 编译不过。
   ⇒ 提交前跑一次 `git status --short`，确认**每个要改的文件都出现在列表里**；
   尤其新建的源码文件，要 `git add` 之后**再看一眼列表**（`git add` 之前它不在列表里）。

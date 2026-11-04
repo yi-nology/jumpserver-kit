@@ -44,8 +44,8 @@ OUT = os.path.realpath("/tmp/jms-mutants-version")
 
 # ⚠️ **仓不止一个**：这条规则跨三个仓 ——
 #   - 词汇与能力在**底座**（jumpserver-mcp-kit）；
-#   - 委派调用点在**管理面**（biz/jumpserver/handler/delegation.go）；
-#   - 反门禁在**执行面**（internal/exec/koko/token.go、cmd/*/doctor.go）；
+#   - 委派调用点在**管理面**（biz/handler/delegation.go）；
+#   - 反门禁在**执行面**（internal/repository/koko/token.go、cmd/*/doctor.go）；
 #   - 守卫住在**服务仓**的 internal/arch/。
 # ⇒ 「文件在哪」「守卫在哪」都得在**工作集**里找，而不是在某一个仓根下找。
 # 工作集的约定与守卫是同一套（见 script/workset.py）：环境变量
@@ -68,6 +68,16 @@ def _at(relpath):
     return workset.locate(relpath, ROOTS)
 
 
+def _in(repo_name, relpath):
+    """**点名**的那个仓里的「仓内相对路径」→ 绝对路径。
+
+    ⚠️ 两个服务仓重构之后**都有** `biz/handler/` ⇒ locate 会拒绝猜
+    （撞名时它宁可报错也不猜 —— 猜错了就是「在错的代码上跑」）⇒ 凡是
+    服务仓的路径都要指名道姓地说在哪个仓里。
+    """
+    return workset.locate_in(repo_name, relpath, ROOTS)
+
+
 def _first(relpaths):
     """工作集里第一个存在的「仓内相对路径」→ 绝对路径。"""
     for rel in relpaths:
@@ -85,16 +95,20 @@ def _doctor_file():
     ⚠️ 按**目录内容**找，不写死二进制名：二进制改过名（jms-exec-mcp →
     jumpserver-mcp-exec），写死的名字迟早会过期，而过期的那天脚本会报
     「找不到文件」—— 一个与真实原因毫无关系的错误信息。
+
+    ⚠️ 而且只在**执行面那个仓**里找：两个服务仓重构之后**都有**
+    `cmd/doctor/doctor.go` ⇒ 按「工作集里第一个」找会找到管理面那个
+    ⇒ 变异打在错的代码上 ⇒ 而那看起来跟「守卫是假的」一模一样。
     """
-    for r in ROOTS:
-        cmd = os.path.join(r, "cmd")
-        if not os.path.isdir(cmd):
-            continue
-        for name in sorted(os.listdir(cmd)):
-            p = os.path.join(cmd, name, "doctor.go")
-            if os.path.exists(p):
-                return p
-    raise SystemExit("⚠️  工作集里找不到 cmd/*/doctor.go")
+    root = workset.repo_root_named("jumpserver-mcp-exec", ROOTS)
+    cmd = os.path.join(root, "cmd")
+    if not os.path.isdir(cmd):
+        raise SystemExit("⚠️  执行面那个仓里没有 cmd/")
+    for name in sorted(os.listdir(cmd)):
+        p = os.path.join(cmd, name, "doctor.go")
+        if os.path.exists(p):
+            return p
+    raise SystemExit("⚠️  执行面那个仓里找不到 cmd/*/doctor.go")
 
 
 def _guard_file():
@@ -121,8 +135,8 @@ def _guard_file():
     return hits[0]
 
 
-H = os.path.dirname(_at("biz/jumpserver/handler/delegation.go"))
-K = os.path.dirname(_at("internal/exec/koko/token.go"))
+H = os.path.dirname(_in("jumpserver-mcp", "biz/handler/delegation.go"))
+K = os.path.dirname(_in("jumpserver-mcp-exec", "internal/repository/koko/token.go"))
 A = os.path.dirname(_guard_file())
 D = os.path.dirname(_doctor_file())
 

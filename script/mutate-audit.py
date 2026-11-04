@@ -61,10 +61,20 @@ def _at(relpath):
     return workset.locate(relpath, ROOTS)
 
 
+def _in(repo_name, relpath):
+    """**点名**的那个仓里的「仓内相对路径」→ 绝对路径。
+
+    ⚠️ 两个服务仓重构之后**都有** `biz/handler/` ⇒ locate 会拒绝猜
+    （撞名时它宁可报错也不猜 —— 猜错了就是「在错的代码上跑」）⇒ 凡是
+    服务仓的路径都要指名道姓地说在哪个仓里。
+    """
+    return workset.locate_in(repo_name, relpath, ROOTS)
+
+
 A = os.path.dirname(_at("pkg/audit/audit.go"))
 R = os.path.dirname(_at("pkg/redact/redact.go"))
-H = os.path.dirname(_at("biz/exec/handler/audit.go"))
-S = os.path.dirname(_at("biz/jumpserver/handler/onboarding.go"))
+H = os.path.dirname(_in("jumpserver-mcp-exec", "biz/handler/audit.go"))
+S = os.path.dirname(_in("jumpserver-mcp", "biz/handler/onboarding.go"))
 
 audit = open(f"{A}/audit.go").read()
 file = open(f"{A}/file.go").read()
@@ -481,15 +491,15 @@ mut("上限没接到文件上", {f"{A}/file.go": file.replace(
 mut("note 不说跳过了几行", {f"{H}/audit.go": handler.replace(
     "len(rows), res.Total, effectiveLimit(args.Limit), skippedNote(res.Skipped),",
     "len(rows), res.Total, effectiveLimit(args.Limit), \"\",")},
-    "TestTheAnswerSaysWhenItCouldNotReadEverything", "./biz/exec/handler/")
+    "TestTheAnswerSaysWhenItCouldNotReadEverything", "./biz/handler/")
 
 mut("note 的上限写天花板", {f"{H}/audit.go": handler.replace(
     "effectiveLimit(args.Limit)", "audit.MaxReadLimit")},
-    "TestTheAnswerDoesNotClaimItMissedAnything", "./biz/exec/handler/")
+    "TestTheAnswerDoesNotClaimItMissedAnything", "./biz/handler/")
 
 mut("答复不报 skipped", {f"{H}/audit.go": handler.replace(
     "Skipped: jms.OptInt32(int32(res.Skipped)),", "")},
-    "TestTheAnswerSaysWhenItCouldNotReadEverything", "./biz/exec/handler/")
+    "TestTheAnswerSaysWhenItCouldNotReadEverything", "./biz/handler/")
 
 
 # ⚠️ 两侧要逐字节相同：落盘侧自己洗 ⇒ 日志侧不洗时两边就分岔了。
@@ -528,7 +538,7 @@ mut("注册表不洗", {f"{RG}": reg.replace(
 # ⚠️ note 报的保留天数不夹逼 ⇒ 承诺的比机器留的还多。
 mut("note 不夹逼保留期", {f"{H}/audit.go": handler.replace(
     "	if days > audit.MaxRetentionDays {\n\t\tdays = audit.MaxRetentionDays\n\t}", "")},
-    "TestTheAnswerPromisesNoMoreThanThePrunerKeeps", "./biz/exec/handler/")
+    "TestTheAnswerPromisesNoMoreThanThePrunerKeeps", "./biz/handler/")
 
 # ⚠️ 词表是这一版的全部内容 ⇒ 两条方向的守卫都要有：
 # 「退成子串匹配」⇒ 良性字段（session/key_id/keywords）被抹 ⇒ 数据损坏；
@@ -723,7 +733,7 @@ mut("超期也钉住", {f"{A}/file.go": file.replace(
 # ⚠️ 没有这一句，「0 行匹配」就与「那天什么都没发生」长得一模一样。
 mut("note 不说保留期", {f"{H}/audit.go": handler.replace(
     "				retentionNote(settings.RetentionDays))),", '				"")),')},
-    "TestTheAnswerSaysHowFarBackTheTrailGoes", "./biz/exec/handler/")
+    "TestTheAnswerSaysHowFarBackTheTrailGoes", "./biz/handler/")
 
 # ---- 第八轮审阅：结构内脱敏、Windows 的 unknown、pid 命名空间 -------------
 # ⚠️ 脱敏退回**文本**形态 ⇒ 值内部的 `=****` 会让整段跳过 ⇒ 密码活着进留痕。
@@ -747,7 +757,7 @@ mut("不可写的目录也说 ok", {f"{A}/health.go": health.replace(
 # ⚠️ 留痕关闭时必须说明 —— 否则每个数字都在说「那就是全部」。
 mut("留痕关闭不说", {f"{H}/audit.go": handler.replace(
     "trailOffNote(dir),", '"",')},
-    "TestTheAnswerSaysWhenTheTrailIsOff", "./biz/exec/handler/")
+    "TestTheAnswerSaysWhenTheTrailIsOff", "./biz/handler/")
 
 # ---- 目录不留空壳：惰性创建 + 保留策略 -------------------------------------
 # ⚠️ 一个启动后没被调用过的进程，不该在留痕目录里留下一个空文件。
@@ -841,13 +851,13 @@ mut("短写不补换行", {f"{A}/file.go": file.replace(
 # ⚠️ 两个服务的留痕目录各自配置 ⇒ 各自要报自己的那一份。
 mut("doctor 不报留痕", {f"{S}/onboarding.go": onboarding.replace(
     "	if trail != nil {", "	if false && trail != nil {")},
-    "TestTheDoctorReportsTheTrail", "./biz/jumpserver/handler/")
+    "TestTheDoctorReportsTheTrail", "./biz/handler/")
 
 # ⚠️ 「不知道」与「没有」是两种沉默，不该长得一样。
 mut("doctor 不知道也说", {f"{S}/onboarding.go": onboarding.replace(
     "	if trail != nil {",
     "	if trail == nil { trail = &audit.Settings{Mode: \"file\"} }\n	if trail != nil {")},
-    "TestTheDoctorSaysNothingAboutTheTrailWhenItCannotKnow", "./biz/jumpserver/handler/")
+    "TestTheDoctorSaysNothingAboutTheTrailWhenItCannotKnow", "./biz/handler/")
 
 # The canary is a mutation that MUST turn the test red. It runs FIRST, and
 # if it stays green the sweep stops right there: a green canary means the
@@ -1019,53 +1029,53 @@ mut("留痕的散文规则不认空白分隔", {f"{R}/redact.go": swap(redact,
 # 了 agent 的明文里，而同一个词的 JSON 形态被抹了 ⇒ 一个词在两条路径上
 # 一个抹一个不抹。
 mut("答复不共用词表", {f"{S}/redact.go": answer + LOCAL_WORD_LIST},
-    "TestRedactSecretsUsesTheSharedWordList", "./biz/jumpserver/handler/")
+    "TestRedactSecretsUsesTheSharedWordList", "./biz/handler/")
 
 # ⚠️ 答复面**不认 JSON 形态** ⇒ `{"password":"x"}` 原样进 agent 的上下文
 # 窗口（实测 12/12 全漏）。
 mut("答复不认 JSON 形态", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "return redactJSONCredentials(s)"),
     "\treturn s")},
-    "TestRedactSecretsMasksTheJSONForm", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheJSONForm", "./biz/handler/")
 
 # ⚠️ 答复面**不抹非标量** ⇒ 只抹掉一个碎片 ⇒ 里头的凭据（名字里没有
 # 凭据词的那个）明文留着，文档还坏了。
 mut("答复不抹非标量", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "s = maskNonScalarCredentials(s)"),
     "")},
-    "TestRedactSecretsMasksNonScalarValues", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksNonScalarValues", "./biz/handler/")
 
 # ⚠️ 答复面**把事实也抹了** ⇒ 「这个账号**有**密码」与「这个账号**没有**
 # 密码」变成了同一句话。
 mut("答复把事实也抹了", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "if isFactLiteral(sub[2]) {"),
     "\t\tif false {")},
-    "TestRedactSecretsKeepsTheFacts", "./biz/jumpserver/handler/")
+    "TestRedactSecretsKeepsTheFacts", "./biz/handler/")
 
 # ⚠️ 答复面**抹掉认证 scheme** ⇒ 记录里不再说得清「怎么认证的」。
 mut("答复抹掉认证 scheme", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "return sub[1] + scheme"),
     "\t\treturn sub[1] + answerMarker")},
-    "TestRedactSecretsKeepsTheAuthScheme", "./biz/jumpserver/handler/")
+    "TestRedactSecretsKeepsTheAuthScheme", "./biz/handler/")
 
 # ⚠️ 答复面**不抹 URL 内嵌的凭据** ⇒ 它没有键名 ⇒ 任何按键名的规则都
 # 抓不到它 ⇒ 明文进 agent 的上下文窗口。
 mut("答复不抹 URL 内嵌凭据", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "urlCredentialRe.ReplaceAllString(s,"),
     "")},
-    "TestRedactSecretsMasksTheURLCredential", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheURLCredential", "./biz/handler/")
 
 # ⚠️ 答复面**只抹认证头的第一个词** ⇒ Digest 的 response 哈希活着。
 mut("答复只抹认证头第一个词", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "authParamsRe.ReplaceAllString(s,"),
     "")},
-    "TestRedactSecretsMasksTheAuthCredentialOnly", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheAuthCredentialOnly", "./biz/handler/")
 
 # ⚠️ 答复面**不抹查询串参数** ⇒ "?token=abc" 里的 token 原样进上下文。
 mut("答复不抹查询串参数", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "queryParamRe.ReplaceAllStringFunc(s,"),
     "\ts = queryParamRe.ReplaceAllStringFunc(\"\", func(m string) string {")},
-    "TestRedactSecretsMasksQueryParameters", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksQueryParameters", "./biz/handler/")
 
 # ⚠️ 答复的散文规则**不认空白分隔** ⇒ 「the password was v」这种「键 +
 # 空格 + 值」的形状在留痕路径被抹、在答复路径不被抹 ⇒ 两条路径对同一个
@@ -1074,7 +1084,7 @@ mut("答复的散文规则不认空白分隔", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, "redact.CredentialWordPattern() + `))((?:"),
     "))((?:\\s*[:=]\\s*|[ \\t]+))",
     "))(\\s*[:=]\\s*)")},
-    "TestRedactSecretsMasksTheProseShapeWithASpace", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheProseShapeWithASpace", "./biz/handler/")
 
 # ⚠️ 答复的散文规则**退回任意键** ⇒ 匹配从「凭据」那里开始变成从「前面
 # 那个词」开始 ⇒ "login failed: password: x" 的凭据从来没有自己的匹配 ⇒
@@ -1082,7 +1092,7 @@ mut("答复的散文规则不认空白分隔", {f"{S}/redact.go": swap(answer,
 mut("答复的散文规则退回任意键", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, "redact.CredentialWordPattern()", 0),
     r'([a-z0-9_.-]*(?:` + redact.CredentialWordPattern() + `))', r'([a-z0-9_.-]+)')},
-    "TestRedactSecretsFindsTheCredentialWhereverItIs", "./biz/jumpserver/handler/")
+    "TestRedactSecretsFindsTheCredentialWhereverItIs", "./biz/handler/")
 
 # ⚠️ 答复的**命令行参数不独立** ⇒ 前缀组没了 ⇒ 组号整个挪了一位 ⇒ 回调
 # 里的 sub[1..3] 不再是「前缀/名字/分隔符」⇒ **值被原样写回** ⇒ 凭据活着。
@@ -1091,28 +1101,28 @@ mut("答复的散文规则退回任意键", {f"{S}/redact.go": swap(answer,
 mut("答复的命令行参数不独立", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, "redact.CredentialWordPattern()", 1),
     r'(?i)(^|[^a-z0-9_.-])(--?', r'(?i)(--?')},
-    "TestRedactSecretsMasksACommandLineArgumentOnce", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksACommandLineArgumentOnce", "./biz/handler/")
 
 # ⚠️ 答复的 URL 凭据**只吃第一个 @** ⇒ 密码里自己的 @ 之后那一截留在
 # 明文里（"https://user:[REDACTED]@ss@host"）。
 mut("答复的 URL 凭据只吃第一个 at", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, "amqp)://"),
     r'([^\s]+)@', r'([^\s@]+)@')},
-    "TestRedactSecretsMasksTheURLAndQueryShapes", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheURLAndQueryShapes", "./biz/handler/")
 
 # ⚠️ 答复的查询串参数**不认引号** ⇒ "?token=\"a b\"" 的引号站在掩码旁边
 # ⇒ 值**一半**在明文里。
 mut("答复的查询串参数不认引号", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, "([?&])"),
     r"""("[^"]*"|'[^']*'|[^\s&"']*)""", r"""([^\s&"']*)""")},
-    "TestRedactSecretsMasksTheURLAndQueryShapes", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheURLAndQueryShapes", "./biz/handler/")
 
 # ⚠️ 答复**不认转义的散文形态** ⇒ 值的形态停在反斜杠 ⇒ 凭据站在它后面
 # 明文里（`{"cmd":"export PASSWORD=\"SECRET\""}`）。
 mut("答复不认转义的散文形态", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, r"(?i)([a-z0-9_.-]+)(\s*[:=]\s*)"),
     r'(\\"(?:[^"\\]|\\[^"])*\\")', r'("[^"]*")')},
-    "TestRedactSecretsMasksTheEscapedProseForm", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheEscapedProseForm", "./biz/handler/")
 
 
 # ---- 答复面的另外四处：这一轮修的东西，答复面也得有自己的守卫 ----------
@@ -1124,20 +1134,20 @@ mut("答复不认转义的散文形态", {f"{S}/redact.go": swap(answer,
 mut("答复的 & 不再靠问号认", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "return redact.InQueryString(before)"),
     "\treturn true")},
-    "TestRedactSecretsHandlesTheAmpersand", "./biz/jumpserver/handler/")
+    "TestRedactSecretsHandlesTheAmpersand", "./biz/handler/")
 
 # ⚠️ 答复**不认双层转义的 JSON** ⇒ SDK 序列化的参数是转义**两次**的 ⇒
 # 一层那条规则看不见它 ⇒ 凭据原样进上下文窗口。
 mut("答复不认双层转义的 JSON", {f"{S}/redact.go": drop_block(answer,
     "answerDoubleEscapedKeyRe.ReplaceAllStringFunc(s,", closer="})")},
-    "TestRedactSecretsMasksTheDoubleEscapedJSON", "./biz/jumpserver/handler/")
+    "TestRedactSecretsMasksTheDoubleEscapedJSON", "./biz/handler/")
 
 # ⚠️ 答复的 JSON **无引号值吃引号** ⇒ 形态规则把下一个字段的引号一起
 # 吃掉 ⇒ 那个字段整个消失 ⇒ 答复丢掉一条事实。
 mut("答复的 JSON 无引号值吃引号", {f"{S}/redact.go": swap(answer,
     anchor_in(answer, r'[^\s",}\]\[{}]*'),
     r'[^\s",}\]\[{}]*', r'[^\s,}\]\[{}]*')},
-    "TestRedactSecretsDoesNotEatTheNextField", "./biz/jumpserver/handler/")
+    "TestRedactSecretsDoesNotEatTheNextField", "./biz/handler/")
 
 # ⚠️ 答复的认证头**不认没有凭据的 scheme** ⇒ "authorization: bearer" 是
 # 一条**事实**（怎么认证的），不是凭据 ⇒ 抹了它，记录里就凭空多出一个
@@ -1145,7 +1155,7 @@ mut("答复的 JSON 无引号值吃引号", {f"{S}/redact.go": swap(answer,
 mut("答复不认没有凭据的 scheme", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "if isAuthScheme(sub[3]) {"),
     "\t\tif false {")},
-    "TestRedactSecretsKeepsASchemeWithoutACredential", "./biz/jumpserver/handler/")
+    "TestRedactSecretsKeepsASchemeWithoutACredential", "./biz/handler/")
 
 
 def fingerprint(path, content):

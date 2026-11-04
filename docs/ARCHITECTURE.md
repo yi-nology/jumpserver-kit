@@ -27,8 +27,9 @@
 ┌─────────▼──────────┐  ┌───────▼────────────────┐
 │ jumpserver-mcp     │  │ jumpserver-mcp-exec    │
 │ 管理面              │  │ 执行面                  │
-│ biz/jumpserver/    │  │ biz/exec/               │
-│ internal/jumpserver│  │ internal/exec/koko      │
+│ 仓根 = 入口层        │  │ 仓根 = 入口层           │
+│ biz/               │  │ biz/                   │
+│ internal/          │  │ internal/              │
 │ 97 个工具           │  │ 15 个工具               │
 └────────────────────┘  └────────────────────────┘
 ```

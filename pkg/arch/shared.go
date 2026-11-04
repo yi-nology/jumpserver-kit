@@ -137,10 +137,10 @@ func reachableBasePackages(t *testing.T, base Tree, services []Tree, svc Tree) m
 		}
 	}
 	// ⚠️ The seeds are EVERY file of the service — not just the ones under
-	// "biz/": a service spans "biz/", "conf/", "internal/" and "cmd/",
-	// and a base package that only the BINARY reaches ("cmd/…") is exactly
-	// the shape this rule is meant to catch ⇒ seeding only from "biz/" let
-	// it escape.
+	// "biz/": a service spans "biz/", "internal/", "etc/" and the entry
+	// layer (the repository root and "cmd/"), and a base package that only
+	// the BINARY reaches is exactly the shape this rule is meant to catch
+	// ⇒ seeding only from "biz/" let it escape.
 	root := absRoot(t, svc.Root)
 	for _, f := range goFilesOrFatal(t, root) {
 		for _, imp := range importsOrFatal(t, f) {
