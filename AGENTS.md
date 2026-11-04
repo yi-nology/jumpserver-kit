@@ -116,6 +116,7 @@ kit/                          # 本仓：库，没有 cmd/
 ├── pkg/                      # 共用底座
 │   ├── jmsapi/               # JumpServer 协议层：传输 + 端点表 + 响应形状 + 边界守卫
 │   ├── reg/                  # 工具注册与门禁（唯一注册入口）+ 留痕挂钩
+│   ├── httpapi/              # HTTP 面：REST + streamable HTTP + OpenAPI 文档（两面共用）
 │   ├── render/               # 结果整形 + 输出契约（Schema 派生 + 校验）
 │   ├── audit/                # 工具调用留痕（写 / 读 / 体检）
 │   ├── redact/               # 凭据脱敏（**唯一一份词表**）
@@ -145,8 +146,8 @@ script/              # 构建 / 发布 / 生成 / 校验
 skills/              # 给 AI 的操作手册
 ```
 
-hz 的 `router.go` / `router_gen.go` 在这里没有对应物：本仓没有 HTTP 路由，
-服务仓的 `biz/<服务>/router` 就是它们的对应物。
+hz 的 `router.go` / `router_gen.go` 的对应物是 `pkg/httpapi`（HTTP 面的路由与认证，
+两个服务共用）；服务仓的 `biz/<服务>/router` 是**工具目录的装配**。
 
 **分层的方向是硬的，有守卫盯着**（判据在各自仓的 `internal/arch/`，守卫体在 `pkg/arch`）：
 - **共用底座（`pkg/`、`model/`）不得依赖任何一个服务**。

@@ -225,6 +225,14 @@ type Registry struct {
 	// registration of the same name is reported rather than absorbed.
 	registered map[string]bool
 
+	// schemas holds the argument and answer shapes each tool declared,
+	// captured at registration. They are published by the REST catalogue
+	// (pkg/httpapi): a client that cannot read the MCP tool list still has
+	// to know what to send. The shapes are captured here rather than
+	// derived later so the catalogue and the server can never disagree
+	// about a tool's shape.
+	schemas map[string]toolSchemas
+
 	// declared records the tools that declared the shape of their output.
 	// A tool that declares one has its answer checked against that shape
 	// before the model sees it; a tool that does not is still callable, but
@@ -250,6 +258,7 @@ func New(impl *mcp.Implementation, opts Options) *Registry {
 			AllowedTools: map[string]bool{},
 		},
 		registered: map[string]bool{},
+		schemas:    map[string]toolSchemas{},
 		declared:   map[string]bool{},
 	}
 	// The middleware watches for the calls the SDK refuses before the tool
@@ -291,6 +300,10 @@ func Add[In any](r *Registry, t *mcp.Tool, fn mcp.ToolHandlerFor[In, any]) {
 		spec.Confirm = &confirm
 	}
 	r.specs = append(r.specs, spec)
+	r.schemas[t.Name] = toolSchemas{
+		input:  rawSchemaJSON(inputSchemaOf[In](t)),
+		output: rawSchemaJSON(t.OutputSchema),
+	}
 	r.gate.AllowedTools[t.Name] = true
 	// The answer's shape, resolved ONCE so the call can check itself
 	// against it.

@@ -11,6 +11,34 @@
 
 ### 修复
 
+## [0.3.0] - 2026-11-04
+
+### 变更
+
+### 新增
+
+- **HTTP 面底座 `pkg/httpapi`**：REST（`GET /api/v1/health`、`GET /api/v1/tools`、
+  `POST /api/v1/tools/{name}/invoke`）+ MCP over streamable HTTP（`/mcp`），
+  与 stdio **共用同一个注册表** ⇒ 同一道风险门禁、同一套确认语义、同一份留痕。
+  - Bearer 令牌认证（常量时间比较）；**无 token 拒绝构建**，没有「不开认证」模式；
+    `/api/v1/health` 是唯一免认证路由。
+  - **结果的读法与 stdio 逐字相同**：拒绝、失败、入参不合形状一律 HTTP 200 +
+    `is_error=true`；请求本身坏才 400，没有这个工具才 404。
+  - **OpenAPI 3.1 文档生成**（`httpapi.OpenAPI`）：从注册表渲染，字节确定
+    （map 键排序）⇒ 服务仓可以把它签入仓库并用守卫逐字节比对。
+- **`pkg/reg` 扩展**：schema 捕获（`reg.Add` 自派生 input schema，镜像 SDK 派生）、
+  `Registry.Schema`、`Registry.CallTool`（内存会话调用，REST 面用）、
+  `Registry.StreamableHTTPHandler`（SDK streamable HTTP 接线）。
+- **镜像有钉**：`pkg/httpapi` 的 `TestTheCatalogueSchemaIsWhatTheWireSends` 拿
+  REST 目录捕获的 schema 与 `/mcp` tools/list **线上字节**逐字节比对（五种入参形态）——
+  SDK 升版若让派生漂移，这道测试会红，而不是两个面静默分岔。
+
+### 修复
+
+- **invoke 的传输层失败改映射 HTTP 500**（原 400）：`CallTool` 返回 err 是
+  会话/传输层故障（入参不合 schema 实测走 200 + `is_error`，与 stdio 逐字相同）——
+  400 会把进程内部的故障说成「你的请求坏了」。OpenAPI 文档的 400 描述同步改正。
+
 ## [0.2.0] - 2026-11-04
 
 ### ⚠️ 更名（breaking）
