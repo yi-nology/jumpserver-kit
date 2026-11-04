@@ -812,7 +812,36 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 各守卫**自己的判据**（扫哪棵树、什么不算生产者、枚举算不算声明）留在守卫上，
 以 `Scope` 传入。守卫身曾经是三份拷贝——拷贝已经漂出过「同一句话写了两遍」。
 
-### 4.8 变异脚本（守卫的自证）
+### 4.8 明文凭据的守卫 `pkg/arch/credential.go`
+
+**为什么有它**：本机一个未推送远端的归档仓，其 git 历史里明文躺着一枚
+JumpServer 堡垒机 **admin 用户的 PrivateToken**（40 位十六进制，在发布脚本、
+校验脚本与 e2e 测试里）。三个公开仓全历史 **0 命中**（公网没有它），但它是
+被人**手工翻历史**才发现的 —— 构建抓不到它，因为脚本里的凭据是一个完全合法的
+程序（它编译通过、它跑得动、它把活干完了）。⇒ 这条守卫让「明文凭据进仓」
+在 CI 阶段就变红。
+
+- **判据是「形状 + 语境」两半**：
+  - 形状：PEM 私钥块 / `Authorization: Token|Bearer|Basic <值>` / 长的十六进制串
+    （长度窗口 `[32,64]`：下限低于 40 位令牌，上限把 sha256 摘要排除在外）；
+  - 语境：**键名经 `redact.IsCredentialKey` 判定为凭据**（它要求凭据词在
+    键名**结尾**）。
+  - ⚠️ **只认形状会误伤**：`.github/workflows/` 里每一个 commit SHA pin
+    都是 40 位十六进制，与堡垒机令牌同长；**只认语境会误伤**任何写在
+    `digest` 键下的长哈希。
+- ⚠️ **凭据词表不另写一份**：用 `redact.IsCredentialKey` ⇒ 与留痕、答复
+  两条路径认的是同一批词 ⇒ 不会漂（写第二份词表这件事本仓已经被咬过两次）。
+- **行级显式豁免**：标记 `jms:allow-credential`（写在当行或上一行）⇒ 豁免
+  当行；**每一处豁免都被守卫用 `t.Logf` 列出来**（豁免是**记账**的，不是
+  静默的）。
+  - ⚠️ 作用域刻意窄：文件级的豁免会让整个文件不再被读 ⇒ 真凭据可以藏在
+    里面而没人看见。
+  - ⚠️ 生产代码里也会有这种形状（脱敏规则的替换模板、形态测试的夹具）——
+    它们**必须**长得一模一样才能匹配 ⇒ 逐行标记，并写清为什么。
+- **实现只有一份，三个入口都接上**：底座自己 + 两个服务仓各一条
+  `TestThePlaintextCredentialsAreNotInTheRepository`。
+
+### 4.9 变异脚本（守卫的自证）
 
 ⚠️ **变异脚本自己得会喊**：overlay 不生效时（在 `/tmp` 这类符号链接路径下就是
 不生效）每条变异都在**未变异的代码**上跑 ⇒ 扫描报「守卫全是假的」而真相是
@@ -821,6 +850,9 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 - `script/mutate-version-guard.py` —— **委派凭据的门禁**与**两条结构断言**
   （7 条变异：漏门禁 / 包限定伪装 / 错状态门禁 / 藏在 `&&` 里的反门禁 /
   守卫不认三态门禁 / 版本号溜进工具层 / 措辞在别处重写）。
+- `script/mutate-credential-guard.py` —— **明文凭据那条守卫**的自证
+  （7 条变异：两个服务仓各一条 + 底座仓一条 + 私钥块一条必须变红；commit SHA
+  形状 / 非凭据键 / 运行时拼接三条必须仍绿）。
 - `script/mutate-identity-guard.py`（在**管理面仓**）—— **身份/status/ACL/RBAC 那一轮**的守卫
   （6 条变异：不可达时捏造「凭据已被接受」/ doctor 失败分支捏造零值身份 /
   清空门退回 `!= ""` / 空 username 当成功 / 同名角色跨 scope 被合并 / 401 当
@@ -851,6 +883,7 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 | 目录一致 | 策略表与注册表必须一一对应（`policy_test.go` 会查） |
 | 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（底座 `pkg/arch/answer.go` + 服务仓薄壳的 `TestTheAnswerTypesAreFoundMechanically`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |
+| **凭据** | 明文凭据不许进仓（`pkg/arch/credential.go` + 三处 `TestThePlaintextCredentialsAreNotInTheRepository`）⇒ 形状 + 语境两半都认；`jms:allow-credential` 是**行级**豁免且**被记账** |
 | **跨仓守卫** | 本仓有三条守卫**要三棵树同时在手**（底座的可达性、共用词汇的产出者、能力的措辞）⇒ 本地要把三个仓并排放着；CI 用 `JMS_REQUIRE_SIBLINGS=1` ⇒ **缺兄弟仓即失败** |
 | 自检 | `jumpserver-mcp --doctor` 与 `jumpserver-mcp-exec --doctor` 退出码 0 |
 | 真调 | 重启会话后实际调一次新工具；**重启前**可用 JSON-RPC 直接驱动已发布二进制 |

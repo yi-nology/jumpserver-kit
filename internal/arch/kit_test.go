@@ -141,6 +141,16 @@ func TestTheSharedBaseIsSharedByBoth(t *testing.T) {
 	arch.CheckBaseSharedByBoth(t, kitTree(t), siblings)
 }
 
+// TestThePlaintextCredentialsAreNotInTheRepository 让凭据不进仓。
+//
+// ⚠️ 理由：写进文件里的凭据，一个 git push 就公开了 —— 而本仓的历史里
+// 真的躺过一枚堡垒机管理员的令牌（在发布脚本与 e2e 测试里），直到有人
+// 手工翻历史才发现它。构建抓不到它：脚本里的凭据是一个完全合法的程序，
+// 它编译通过、它跑得动、它把活干完了。
+func TestThePlaintextCredentialsAreNotInTheRepository(t *testing.T) {
+	arch.CheckNoPlaintextCredentials(t, kitRoot(t))
+}
+
 // TestTheCapabilityGateHoldsInTheServiceRepos 让两个服务仓里的委派调用点
 // 都先问能力。
 //
