@@ -169,14 +169,27 @@ type Result struct {
 	Skipped int
 }
 
+// EffectiveLimit is the limit a Read will actually use for this ask: the
+// default when none was given, capped at the ceiling the trail allows.
+//
+// It exists so an answer can SAY the limit in force without re-deriving it:
+// a note that quotes a different number than the reader used is a true
+// sentence about the wrong thing. ⚠️ It clamps to MaxReadLimit — it is NOT
+// render.NormLimit, which falls back to a default above its ceiling; the
+// two answer different questions.
+func EffectiveLimit(asked int) int {
+	switch {
+	case asked <= 0:
+		return DefaultReadLimit
+	case asked > MaxReadLimit:
+		return MaxReadLimit
+	default:
+		return asked
+	}
+}
+
 func Read(opts ReadOptions) (Result, error) {
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = DefaultReadLimit
-	}
-	if limit > MaxReadLimit {
-		limit = MaxReadLimit
-	}
+	limit := EffectiveLimit(opts.Limit)
 	// ⚠️ An empty directory means there is NO trail file — and the writer
 	// says so too: openTrail returns nil for an empty Dir, which is what
 	// "the file trail is off" means.

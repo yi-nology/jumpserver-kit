@@ -11,6 +11,26 @@
 
 ### 修复
 
+## [0.6.0] - 2026-11-05
+
+### 新增
+
+- **`pkg/confload` —— 两服务共用的配置装载底座**：三段式读档（env → 默认 → 校验，每段
+  报自己的错）、HTTP/RPC 两张脸的「地址不带 token 即拒绝」纪律、登录密码与 OTP 的
+  文件回退读档。两服务仓的 `Load()` 此前各持一份逐字相同的拷贝，收编成一份。
+- **`audit.EffectiveLimit`**：`Read` 实际生效的 limit 的唯一出处，执行面的
+  `jmsx_audit_query` 在 note 里复述生效值时不再自持一份钳制副本。
+  ⚠️ 与 `render.NormLimit` 语义不同（超上限一个钳到 max、一个回落 def），勿混用。
+- **`render.FillRehearsal` / `render.FillRefusal` / `render.RehearsalNote`**：判定词汇
+  （risk/dry_run/would_execute/executed/blocked/note）的反射式**写**侧，与
+  `render.OutcomeOf` 的读侧同一套 Go 字段名。两面的演练/被拒答复从此一个写法，
+  契约类型保持 thrift 生成物、不挂方法。
+
+### 移除
+
+- `arch.ASTFiles` / `jmsapi.ToMap` / `redact.Secrets`：三仓交叉验证零引用的死导出。
+  （对 0.x 的消费者构成 API 移除；无人引用，语义上兼容。）
+
 ## [0.5.0] - 2026-11-05
 
 ### 新增
