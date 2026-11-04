@@ -12,7 +12,7 @@
 
 工作集（哪些仓参与这一轮）：
 
-    JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec
+    JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec
 
 没有这个环境变量时用同级目录约定（见 script/workset.py）。
 
@@ -43,7 +43,7 @@ import sys
 OUT = os.path.realpath("/tmp/jms-mutants-version")
 
 # ⚠️ **仓不止一个**：这条规则跨三个仓 ——
-#   - 词汇与能力在**底座**（jumpserver-mcp-kit）；
+#   - 词汇与能力在**底座**（jumpserver-kit）；
 #   - 委派调用点在**管理面**（biz/handler/delegation.go）；
 #   - 反门禁在**执行面**（internal/repository/koko/token.go、cmd/*/doctor.go）；
 #   - 守卫住在**服务仓**的 internal/arch/。
@@ -56,7 +56,7 @@ import workset
 ROOT = workset.own_root(__file__)
 ROOTS = workset.roots(__file__)
 # 副本里的工作集：三个仓并排放在 OUT/ws/ 下，**保留原来的目录名** ⇒
-# go.work 里的相对路径（../jumpserver-mcp-kit）与守卫的同级目录约定
+# go.work 里的相对路径（../jumpserver-kit）与守卫的同级目录约定
 # 在副本里照样成立。
 WS = os.path.join(OUT, "ws")
 COPY_ROOTS = [os.path.join(WS, os.path.basename(r)) for r in ROOTS]
@@ -93,14 +93,14 @@ def _doctor_file():
     """执行面的 doctor 在哪个仓的哪个 cmd 目录下。
 
     ⚠️ 按**目录内容**找，不写死二进制名：二进制改过名（jms-exec-mcp →
-    jumpserver-mcp-exec），写死的名字迟早会过期，而过期的那天脚本会报
+    jumpserver-exec），写死的名字迟早会过期，而过期的那天脚本会报
     「找不到文件」—— 一个与真实原因毫无关系的错误信息。
 
     ⚠️ 而且只在**执行面那个仓**里找：两个服务仓重构之后**都有**
     `cmd/doctor/doctor.go` ⇒ 按「工作集里第一个」找会找到管理面那个
     ⇒ 变异打在错的代码上 ⇒ 而那看起来跟「守卫是假的」一模一样。
     """
-    root = workset.repo_root_named("jumpserver-mcp-exec", ROOTS)
+    root = workset.repo_root_named("jumpserver-exec", ROOTS)
     cmd = os.path.join(root, "cmd")
     if not os.path.isdir(cmd):
         raise SystemExit("⚠️  执行面那个仓里没有 cmd/")
@@ -135,8 +135,8 @@ def _guard_file():
     return hits[0]
 
 
-H = os.path.dirname(_in("jumpserver-mcp", "biz/handler/delegation.go"))
-K = os.path.dirname(_in("jumpserver-mcp-exec", "internal/repository/koko/token.go"))
+H = os.path.dirname(_in("jumpserver-mgmt", "biz/handler/delegation.go"))
+K = os.path.dirname(_in("jumpserver-exec", "internal/repository/koko/token.go"))
 A = os.path.dirname(_guard_file())
 D = os.path.dirname(_doctor_file())
 
@@ -169,7 +169,7 @@ def in_copy(path):
     """The same file, inside the copy.
 
     ⚠️ 副本里三个仓**保持原来的目录名**并排放在 OUT/ws/ 下 ⇒ 相对路径
-    （go.work 里的 ../jumpserver-mcp-kit、守卫的同级目录约定）在副本里
+    （go.work 里的 ../jumpserver-kit、守卫的同级目录约定）在副本里
     照样成立 ⇒ 副本是一个**自洽的工作集**，不是一个孤零零的仓。
     """
     owner = workset.repo_of(path, ROOTS)
@@ -327,7 +327,7 @@ mut("守卫不认三态门禁：notPresentTest 的 NEQ 改成 EQL", {
         '\t\tif c.op != token.NEQ || c.marker != "present" {',
         '\t\tif c.op != token.EQL || c.marker != "present" {',
         "守卫不认三态门禁"),
-}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-mcp")
+}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-mgmt")
 
 # M6 「版本号溜进工具层」：在工具层加一个按**发行版**分支的助手。
 #
@@ -352,7 +352,7 @@ mut("措辞在别处重写：doctor 自己写那句「没有委派方案」", {
         "jmsapi.Explain(jmsapi.CapDelegation, state)",
         '"this deployment has no Chat AI delegation scheme"',
         "措辞在别处重写"),
-}, "TestTheCapabilityWordingIsNotRewrittenElsewhere", GUARD_PKG, IN_TREE, "jumpserver-mcp-kit")
+}, "TestTheCapabilityWordingIsNotRewrittenElsewhere", GUARD_PKG, IN_TREE, "jumpserver-kit")
 
 # ---- 守卫的边界（必须仍然绿） ---------------------------------------------
 
@@ -384,7 +384,7 @@ CANARY = ("【canary】守卫认不出能力提问", {
         "\t\t\tif a.Sel.Name == constName {",
         "\t\t\tif a.Sel.Name == constName+\"__canary\" {",
         "canary"),
-}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-mcp-exec")
+}, GUARD_TEST, GUARD_PKG, OVERLAY, "jumpserver-exec")
 
 
 def make_copy():

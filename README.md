@@ -1,7 +1,7 @@
-# jumpserver-mcp-kit — JumpServer MCP 服务的**共用底座**
+# jumpserver-kit — JumpServer MCP 服务的**共用底座**
 
-两个 MCP 服务（[管理面](https://github.com/yi-nology/jumpserver-mcp)、
-[执行面](https://github.com/yi-nology/jumpserver-mcp-exec)）共同认的那一部分：
+两个 MCP 服务（[管理面](https://github.com/yi-nology/jumpserver-mgmt)、
+[执行面](https://github.com/yi-nology/jumpserver-exec)）共同认的那一部分：
 JumpServer 协议层、工具注册与门禁、结果整形与输出契约、工具调用留痕、凭据脱敏、
 命令风险分类、失败分类、共用词汇。
 
@@ -9,9 +9,9 @@ JumpServer 协议层、工具注册与门禁、结果整形与输出契约、工
 
 | 仓库 | 是什么 |
 |---|---|
-| [`yi-nology/jumpserver-mcp`](https://github.com/yi-nology/jumpserver-mcp) | 管理面 MCP 服务（97 个工具） |
-| [`yi-nology/jumpserver-mcp-exec`](https://github.com/yi-nology/jumpserver-mcp-exec) | 执行面 MCP 服务（15 个工具） |
-| **`yi-nology/jumpserver-mcp-kit`**（本仓） | 两者共用的底座 |
+| [`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt) | 管理面 MCP 服务（97 个工具） |
+| [`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec) | 执行面 MCP 服务（15 个工具） |
+| **`yi-nology/jumpserver-kit`**（本仓） | 两者共用的底座 |
 
 ---
 
@@ -55,13 +55,13 @@ JumpServer 协议层、工具注册与门禁、结果整形与输出契约、工
 ## 3. 怎么用
 
 ```bash
-go get github.com/yi-nology/jumpserver-mcp-kit@latest
+go get github.com/yi-nology/jumpserver-kit@latest
 ```
 
 ```go
 import (
-    "github.com/yi-nology/jumpserver-mcp-kit/pkg/reg"
-    "github.com/yi-nology/jumpserver-mcp-kit/pkg/render"
+    "github.com/yi-nology/jumpserver-kit/pkg/reg"
+    "github.com/yi-nology/jumpserver-kit/pkg/render"
 )
 ```
 

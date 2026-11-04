@@ -50,7 +50,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/redact"
+	"github.com/yi-nology/jumpserver-kit/pkg/redact"
 )
 
 // CredentialHit is one place where a credential-shaped value sits in a

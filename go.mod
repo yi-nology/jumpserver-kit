@@ -1,4 +1,4 @@
-// jumpserver-mcp-kit —— JumpServer MCP 的共用底座。
+// jumpserver-kit —— JumpServer MCP 的共用底座。
 //
 // 这是**库**，不是可执行程序：协议层（pkg/jmsapi）、工具注册与门禁
 // （pkg/reg）、结果整形与输出契约（pkg/render）、工具调用留痕（pkg/audit）、
@@ -17,7 +17,7 @@
 // 指向本机路径的 replace 会让 go.mod 与机器绑定，go list -m 报的是路径
 // 而不是版本，require 里的版本号变成一句空话。
 
-module github.com/yi-nology/jumpserver-mcp-kit
+module github.com/yi-nology/jumpserver-kit
 
 go 1.26.0
 

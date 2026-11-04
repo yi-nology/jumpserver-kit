@@ -46,7 +46,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/contractscan"
+	"github.com/yi-nology/jumpserver-kit/pkg/contractscan"
 )
 
 // CheckVerdictConvention 钉住判定约定。

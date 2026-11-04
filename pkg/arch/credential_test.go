@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/arch"
+	"github.com/yi-nology/jumpserver-kit/pkg/arch"
 )
 
 // aHexValue returns a credential-shaped hex value.

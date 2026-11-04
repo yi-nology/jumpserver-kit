@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/fspath"
+	"github.com/yi-nology/jumpserver-kit/pkg/fspath"
 )
 
 // ReadOptions filters what Read returns.

@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/fspath"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/fspath"
 )
 
 // Reason says WHY the trail is not healthy.

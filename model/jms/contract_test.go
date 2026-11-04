@@ -20,8 +20,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/arch"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/contractscan"
+	"github.com/yi-nology/jumpserver-kit/pkg/arch"
+	"github.com/yi-nology/jumpserver-kit/pkg/contractscan"
 )
 
 func TestEveryContractTypeIsProduced(t *testing.T) {

@@ -4,7 +4,7 @@
 为什么它在仓里：一份「全都验过了」的证据，如果只躺在 /tmp 里，机器一重启
 就没了，下一轮谁也复现不了 ⇒ 而「守卫必须自证会红」正是本仓的规矩。
 
-⚠️ **它住在底座仓（jumpserver-mcp-kit）里，因为它跨仓**：被变异的源码在底座
+⚠️ **它住在底座仓（jumpserver-kit）里，因为它跨仓**：被变异的源码在底座
 （pkg/audit、pkg/redact、pkg/reg、pkg/textx）与两个服务仓（两个面的
 handler）里，而**要证明会红的守卫有一部分在服务仓里**（答复守卫、留痕守卫）
 ⇒ 一轮变异要同时动三个仓。
@@ -16,7 +16,7 @@ handler）里，而**要证明会红的守卫有一部分在服务仓里**（答
 
 工作集（哪些仓参与这一轮）：
 
-    JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec
+    JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec
 
 没有这个环境变量时用同级目录约定（见 script/workset.py）。
 
@@ -45,7 +45,7 @@ import workset
 # disagree the overlay is SILENTLY IGNORED and every mutant runs against
 # unmutated code — which looks exactly like "all the guards are fake".
 # The fourth review found it that way: 0/32, with no hint of why.
-# ⚠️ **仓不止一个**：底座（jumpserver-mcp-kit）与两个服务仓并排。
+# ⚠️ **仓不止一个**：底座（jumpserver-kit）与两个服务仓并排。
 # 这一轮变异要改底座的源码（pkg/audit、pkg/redact、pkg/reg、pkg/textx），
 # 也要改服务仓的源码（两个面的 handler）⇒ 「文件在哪」「测试在哪」都得
 # 在**工作集**里找，而不是在某一个仓根底下找。
@@ -73,8 +73,8 @@ def _in(repo_name, relpath):
 
 A = os.path.dirname(_at("pkg/audit/audit.go"))
 R = os.path.dirname(_at("pkg/redact/redact.go"))
-H = os.path.dirname(_in("jumpserver-mcp-exec", "biz/handler/audit.go"))
-S = os.path.dirname(_in("jumpserver-mcp", "biz/handler/onboarding.go"))
+H = os.path.dirname(_in("jumpserver-exec", "biz/handler/audit.go"))
+S = os.path.dirname(_in("jumpserver-mgmt", "biz/handler/onboarding.go"))
 
 audit = open(f"{A}/audit.go").read()
 file = open(f"{A}/file.go").read()
@@ -532,7 +532,7 @@ mut("保留期溢出", {f"{A}/file.go": file.replace(
 # ⚠️ 注册表不洗 ⇒ 回调拿到明文 ⇒ 这条公共 API 承诺就没有任何东西守着。
 mut("注册表不洗", {f"{RG}": reg.replace(
     "\trec.Call.Args = redact.Scrub(rec.Call.Args)\n", "").replace(
-    "\t\"github.com/yi-nology/jumpserver-mcp-kit/pkg/redact\"\n", "")},
+    "\t\"github.com/yi-nology/jumpserver-kit/pkg/redact\"\n", "")},
     "TestTheRegistryScrubsTheArgumentsBeforeTheCallback", "./pkg/reg/")
 
 # ⚠️ note 报的保留天数不夹逼 ⇒ 承诺的比机器留的还多。

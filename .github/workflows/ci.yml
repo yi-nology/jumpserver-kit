@@ -45,11 +45,11 @@ jobs:
     #   (推的顺序:先建三个仓 → 推 kit 并打 v0.1.0 tag → 推两个服务仓。)
     env:
       JMS_REQUIRE_SIBLINGS: "1"
-      JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mcp:${{ github.workspace }}/jumpserver-mcp-exec
+      JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mgmt:${{ github.workspace }}/jumpserver-exec
 
     steps:
-      # ⚠️ 本仓 checkout 到 kit/ 子目录 ⇒ 它的兄弟目录正好是 ../jumpserver-mcp 与
-      #   ../jumpserver-mcp-exec —— 与 pkg/arch.SiblingRoots 的同级目录约定一致。
+      # ⚠️ 本仓 checkout 到 kit/ 子目录 ⇒ 它的兄弟目录正好是 ../jumpserver-mgmt 与
+      #   ../jumpserver-exec —— 与 pkg/arch.SiblingRoots 的同级目录约定一致。
       - name: Checkout kit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,15 +59,15 @@ jobs:
       - name: Checkout management plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: yi-nology/jumpserver-mcp
-          path: jumpserver-mcp
+          repository: yi-nology/jumpserver-mgmt
+          path: jumpserver-mgmt
           persist-credentials: false
 
       - name: Checkout execution plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: yi-nology/jumpserver-mcp-exec
-          path: jumpserver-mcp-exec
+          repository: yi-nology/jumpserver-exec
+          path: jumpserver-exec
           persist-credentials: false
 
       - name: Set up Go

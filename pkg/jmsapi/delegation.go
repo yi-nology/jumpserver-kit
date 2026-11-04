@@ -460,8 +460,8 @@ func DelegationSecretFiles() []string {
 		return nil
 	}
 	return []string{
-		filepath.Join(home, ".config", "jumpserver-mcp", "delegation.key"),
-		filepath.Join(home, ".local", "etc", "jumpserver-mcp", "delegation.key"),
+		filepath.Join(home, ".config", "jumpserver-mgmt", "delegation.key"),
+		filepath.Join(home, ".local", "etc", "jumpserver-mgmt", "delegation.key"),
 	}
 }
 

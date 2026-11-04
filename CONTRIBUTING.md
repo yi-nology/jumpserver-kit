@@ -1,4 +1,4 @@
-# 参与贡献（jumpserver-mcp-kit）
+# 参与贡献（jumpserver-kit）
 
 感谢你愿意动手。这个仓的规矩比一般项目多几条 —— 不是为了仪式感，是因为**这个仓的前任栽过跟头，
 而那些跟头现在都写成了守卫**，绕开守卫的 PR 会在评审时被挡回来。
@@ -17,8 +17,8 @@
 凭据脱敏（`pkg/redact`）、命令风险分类（`pkg/risk`）、失败分类（`pkg/errs`）、
 共用词汇（`model/jms`）、契约守卫与架构守卫的机械。
 
-两个服务仓：[`yi-nology/jumpserver-mcp`](https://github.com/yi-nology/jumpserver-mcp)（管理面，97 个工具）、
-[`yi-nology/jumpserver-mcp-exec`](https://github.com/yi-nology/jumpserver-mcp-exec)（执行面，15 个工具）。
+两个服务仓：[`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt)（管理面，97 个工具）、
+[`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec)（执行面，15 个工具）。
 
 ## 环境
 
@@ -37,11 +37,11 @@ go vet ./...              # 静态检查
 
 ```bash
 # 三个仓并排放着（同级目录约定）就能直接跑：
-#   ../jumpserver-mcp-kit  ../jumpserver-mcp  ../jumpserver-mcp-exec
+#   ../jumpserver-kit  ../jumpserver-mgmt  ../jumpserver-exec
 go test ./...
 
 # 或者显式指路：
-JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec go test ./...
+JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec go test ./...
 ```
 
 ⚠️ **找不到兄弟仓 ⇒ 守卫跳过**（不是失败）。**跳过 ≠ 通过** ⇒ CI 设

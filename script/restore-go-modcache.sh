@@ -68,7 +68,7 @@ MODULES=(
 # ⚠️ 为什么要有这一步：**工作集里直接给出的模块**（go.work 的 use 指向的
 # 源码目录）不在 module cache 里，也不在代理上 ⇒ 它不该被「恢复」：强行去
 # 取只会拿到一个 404，然后把这个脚本的结论染成「失败」。
-# （对两个服务仓来说，那一个就是共用底座 jumpserver-mcp-kit。）
+# （对两个服务仓来说，那一个就是共用底座 jumpserver-kit。）
 in_workspace() {
   local mod="$1" dir
   local gowork="${GOWORK:-}"

@@ -30,15 +30,15 @@ jobs:
       - name: Checkout management plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: yi-nology/jumpserver-mcp
-          path: jumpserver-mcp
+          repository: yi-nology/jumpserver-mgmt
+          path: jumpserver-mgmt
           persist-credentials: false
 
       - name: Checkout execution plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: yi-nology/jumpserver-mcp-exec
-          path: jumpserver-mcp-exec
+          repository: yi-nology/jumpserver-exec
+          path: jumpserver-exec
           persist-credentials: false
 
       - name: Set up Go
@@ -66,7 +66,7 @@ jobs:
           # ⚠️ 跨仓守卫要三棵树同时在手 ⇒ 缺兄弟仓时它会**跳过**，
           #   而跳过 ≠ 通过 ⇒ 这里要求它不许跳过。
           JMS_REQUIRE_SIBLINGS: "1"
-          JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mcp:${{ github.workspace }}/jumpserver-mcp-exec
+          JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mgmt:${{ github.workspace }}/jumpserver-exec
         run: go test -v ./...
 
   publish:
@@ -110,11 +110,11 @@ jobs:
             本仓没有二进制，也没有产物附件 —— 它是 Go 模块：
 
             ```
-            go get github.com/yi-nology/jumpserver-mcp-kit@latest
+            go get github.com/yi-nology/jumpserver-kit@latest
             ```
 
-            两个服务仓（[管理面](https://github.com/yi-nology/jumpserver-mcp) /
-            [执行面](https://github.com/yi-nology/jumpserver-mcp-exec)）`require` 它。
+            两个服务仓（[管理面](https://github.com/yi-nology/jumpserver-mgmt) /
+            [执行面](https://github.com/yi-nology/jumpserver-exec)）`require` 它。
 
             ⚠️ **发版节奏**：底座是**承诺** ⇒ 改底座先发底座的 tag，
             再更新两个服务仓的 `require`，最后才发两个服务。

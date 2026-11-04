@@ -1,4 +1,4 @@
-# 安全策略（jumpserver-mcp-kit）
+# 安全策略（jumpserver-kit）
 
 ## 报告漏洞
 
@@ -33,7 +33,7 @@
 
 ## 留痕（audit trail）本身也是数据
 
-留痕文件（默认 `~/.local/state/jumpserver-mcp/audit`，一进程一文件，0600）里记着
+留痕文件（默认 `~/.local/state/jumpserver-mgmt/audit`，一进程一文件，0600）里记着
 「谁在这台机器上试图跑什么」。**它也是敏感数据**：把它当审计资料保管，
 别整目录丢进共享盘或日志系统。
 

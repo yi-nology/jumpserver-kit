@@ -9,7 +9,7 @@ import (
 	"github.com/oagentkit/tools/bashguard"
 	"gopkg.in/yaml.v3"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
 )
 
 // readonlyTable is the fleet's read-only vocabulary.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/errs"
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 )
 
 // The tests here are about the WIRE, not about meaning: the two list shapes,

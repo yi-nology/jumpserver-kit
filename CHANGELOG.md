@@ -11,6 +11,24 @@
 
 ### 修复
 
+## [0.2.0] - 2026-11-04
+
+### ⚠️ 更名（breaking）
+
+- 项目名去掉 `mcp`（本项目不止 MCP——两个服务接下来同时提供 HTTP API）：
+  - **`jumpserver-mcp-kit` → `jumpserver-kit`**（本仓；模块路径
+    `github.com/yi-nology/jumpserver-kit`）
+  - `jumpserver-mcp` → `jumpserver-mgmt`
+  - `jumpserver-mcp-exec` → `jumpserver-exec`
+- GitHub 仓名同步更名（旧 URL 自动跳转）。旧模块路径
+  `github.com/yi-nology/jumpserver-mcp-kit` 停在 **v0.1.9**（该 tag 的 go.mod
+  声明旧路径 ⇒ 旧消费者不受影响）；新路径从本版起。
+- 历史条目里的旧名已统一改写为新名，旧 → 新映射以本条为准。
+
+### 变更
+
+- 本次只动名字（模块路径、文档、脚本、CI 里的引用），行为不变。
+
 ## [0.1.9] - 2026-11-04
 
 ### 变更
@@ -260,7 +278,7 @@
 
 - ⚠️ **委派密钥缺失时的报错文案变了**（`pkg/jmsapi/delegation.go`）：
   原来只有 `"no delegation secret configured"`；现在额外说出**去哪找**
-  （`JMS_DELEGATION_SECRET` 环境变量，或 `~/.config/jumpserver-mcp/delegation.key`
+  （`JMS_DELEGATION_SECRET` 环境变量，或 `~/.config/jumpserver-mgmt/delegation.key`
   等几个文件、权限 0600）。
   ⇒ **这条文案在拆分前的仓里从未存在过** ⇒ 它是一次**独立的行为变化**，
   不是改名，所以在这里声明。
@@ -309,7 +327,7 @@
 ### 变更
 
 - ⚠️ **留痕目录与凭据文件目录改名**：从 `~/.local/state/jms-mcp/audit` 改为
-  `~/.local/state/jumpserver-mcp/audit`；凭据文件目录从 `~/.config/jms-mcp/` 改为
-  `~/.config/jumpserver-mcp/`（口令文件、委派 secret）。
+  `~/.local/state/jumpserver-mgmt/audit`；凭据文件目录从 `~/.config/jms-mcp/` 改为
+  `~/.config/jumpserver-mgmt/`（口令文件、委派 secret）。
   ⇒ **升级时要把旧目录里的东西挪过去**（或设 `JMS_AUDIT_DIR` 指回旧路径），
   否则留痕会从零开始、旧记录查不到。

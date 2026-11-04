@@ -22,10 +22,10 @@ import (
 	"github.com/oagentkit/guardx/invoke"
 	"github.com/oekit/logx"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/fspath"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/redact"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/reg"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/textx"
+	"github.com/yi-nology/jumpserver-kit/pkg/fspath"
+	"github.com/yi-nology/jumpserver-kit/pkg/redact"
+	"github.com/yi-nology/jumpserver-kit/pkg/reg"
+	"github.com/yi-nology/jumpserver-kit/pkg/textx"
 )
 
 // Settings is where the trail goes.

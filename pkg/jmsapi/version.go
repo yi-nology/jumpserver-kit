@@ -69,8 +69,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/errs"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 )
 
 // Version is a JumpServer generation.

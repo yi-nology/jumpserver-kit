@@ -17,8 +17,8 @@ import (
 	"github.com/oagentkit/guardx/invoke"
 	"github.com/oekit/logx"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/reg"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/reg"
 )
 
 // The trail is the only record of a call that did NOT run: such a call never
@@ -32,12 +32,12 @@ func TestTheTrailLandsInAFile(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	trail(reg.Record{
 		Gate: invoke.Record{
 			Call: invoke.Call{
 				Name:   "jmsx_exec",
-				Server: "jumpserver-mcp-exec",
+				Server: "jumpserver-exec",
 				Args:   `{"asset":"node-071","command":"rm -rf /var/lib/x"}`,
 			},
 			Allowed:  true,
@@ -66,7 +66,7 @@ func TestTheTrailLandsInAFile(t *testing.T) {
 	if e.Tool != "jmsx_exec" {
 		t.Errorf("the line says the tool is %q", e.Tool)
 	}
-	if e.Service != "jumpserver-mcp-exec" {
+	if e.Service != "jumpserver-exec" {
 		t.Errorf("the line says the service is %q", e.Service)
 	}
 	if e.Allowed {
@@ -108,9 +108,9 @@ func TestARehearsalIsNotARefusal(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 			Outcome: &invoke.Outcome{
 				// The rehearsal's answer carries a blocked field too — the
@@ -166,9 +166,9 @@ func TestAFailedCallCarriesItsFailure(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		},
 		ToolError: "ERROR: the command died half way through",
@@ -207,12 +207,12 @@ func TestOnlyARehearsalThatSaidCarriesWouldExecute(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 
 	// The answer did not say: the record carries no verdict on it.
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 			Outcome: &invoke.Outcome{DryRun: true},
 		},
@@ -222,7 +222,7 @@ func TestOnlyARehearsalThatSaidCarriesWouldExecute(t *testing.T) {
 	said := false
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 			Outcome: &invoke.Outcome{DryRun: true},
 		},
@@ -258,10 +258,10 @@ func TestTheTrailRecordsWhoCalled(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{Gate: invoke.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{Gate: invoke.Record{
 		Call: invoke.Call{
 			Name:   "jmsx_exec",
-			Server: "jumpserver-mcp-exec",
+			Server: "jumpserver-exec",
 			Caller: "minimax-code",
 		},
 		Allowed: true,
@@ -306,8 +306,8 @@ func TestTheTrailFileIsNotWorldReadable(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{Gate: invoke.Record{
-		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{Gate: invoke.Record{
+		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 	}})
 
 	paths, err := filepath.Glob(filepath.Join(dir, "audit-*.jsonl"))
@@ -336,11 +336,11 @@ func TestTheTrailCarriesTheDeliveryState(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	// A command that may already be running on the machine.
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			// The tool's own failure: the chain closed with an error
 			// that is not a gate denial.
 			Err: errors.New("the command may already be running on the machine"),
@@ -350,7 +350,7 @@ func TestTheTrailCarriesTheDeliveryState(t *testing.T) {
 	// A command that never left this process.
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Err:  errors.New("the command was not delivered"),
 		},
 		Delivery: jms.Delivery_not_sent.String(),
@@ -358,7 +358,7 @@ func TestTheTrailCarriesTheDeliveryState(t *testing.T) {
 	// A call nobody classified.
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		},
 	})
 
@@ -416,9 +416,9 @@ func TestAToolErrorWrappingTheGateErrorIsNotAGateStop(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			// Every stage allowed: the gate let it through.
 			Stages: []invoke.StageResult{{Stage: "capability", Allow: true}},
 			Err: fmt.Errorf("the tool blew up: %w", &invoke.DenyError{
@@ -460,30 +460,30 @@ func TestTheFailuresCanBeFiltered(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	// A call whose work failed.
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		},
 		ToolError: "ERROR: no such asset",
 	})
 	// A call the GATE stopped: nothing ran, and nothing is broken.
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: false,
 		Err:     &invoke.DenyError{Stage: "confirm", Tool: "jmsx_exec", Reason: "set confirm=true"},
 	}})
 	// A call the TOOL refused: also nothing ran, and also not a failure.
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 		Outcome: &invoke.Outcome{Refused: "classified DANGEROUS"},
 	}})
 	// A call that worked.
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 
@@ -528,18 +528,18 @@ func TestTheTrailCanBeFiltered(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 		Outcome: &invoke.Outcome{Refused: "classified DANGEROUS"},
 	}})
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_get_file", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_get_file", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 	trail(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jms_asset_create", Server: "jumpserver-mcp"},
+		Call:    invoke.Call{Name: "jms_asset_create", Server: "jumpserver-mgmt"},
 		Allowed: false,
 	}})
 
@@ -579,7 +579,7 @@ func TestTheTrailCanBeFiltered(t *testing.T) {
 		t.Fatalf("the refusals filter returned %+v", entries)
 	}
 
-	res, err = Read(ReadOptions{Dir: dir, Service: "jumpserver-mcp"})
+	res, err = Read(ReadOptions{Dir: dir, Service: "jumpserver-mgmt"})
 
 	entries = res.Entries
 
@@ -609,10 +609,10 @@ func TestTheCountIsOfEverythingThatMatched(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	for i := 0; i < 5; i++ {
 		trail(reg.Record{Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		}})
 	}
@@ -637,8 +637,8 @@ func TestAHalfWrittenLineIsSkipped(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	good := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
-	half := `{"ts":"2026-10-28T09:00:01+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_`
+	good := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	half := `{"ts":"2026-10-28T09:00:01+08:00","service":"jumpserver-exec","tool":"jmsx_`
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
 	if err := os.WriteFile(path, []byte(good+half), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -696,9 +696,9 @@ func TestALongMultiByteClientNameIsFoundByItsFilter(t *testing.T) {
 	// point that is not on a character boundary breaks the name.
 	name := strings.Repeat("审", 80)
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec", Caller: name},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec", Caller: name},
 			Allowed: true,
 		},
 	})
@@ -729,9 +729,9 @@ func TestACallStoppedBeforeTheToolWasStopped(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	Trail(Options{Service: "jumpserver-mcp", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-mgmt", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call: invoke.Call{Name: "jms_user_set_active", Server: "jumpserver-mcp"},
+			Call: invoke.Call{Name: "jms_user_set_active", Server: "jumpserver-mgmt"},
 			Err:  errors.New(`validating "arguments": required: missing properties: ["confirm"]`),
 		},
 		StoppedEarly: true,
@@ -779,7 +779,7 @@ func TestTheRotatedTrailIsStillReadable(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail file did not open")
 	}
@@ -789,7 +789,7 @@ func TestTheRotatedTrailIsStillReadable(t *testing.T) {
 		}
 	}()
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 	if !trail.rotate() {
@@ -797,7 +797,7 @@ func TestTheRotatedTrailIsStillReadable(t *testing.T) {
 	}
 	// A line in the fresh file, after the rotation.
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 
@@ -825,7 +825,7 @@ func TestAFileThatIsNotTheTrailIsNotReadAsOne(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	real := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	real := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl"), []byte(real), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -896,9 +896,9 @@ func TestTheArgumentsAreCutOnACharacterBoundary(t *testing.T) {
 	// not on a character boundary breaks a character.
 	args := `{"command":"` + strings.Repeat("审", 300) + `"}`
 
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec", Args: args},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec", Args: args},
 			Allowed: true,
 		},
 	})
@@ -946,7 +946,7 @@ func TestAFailedRotationKeepsTheSizeAccounting(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail file did not open")
 	}
@@ -956,7 +956,7 @@ func TestAFailedRotationKeepsTheSizeAccounting(t *testing.T) {
 		}
 	}()
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec", Args: "{}"},
+		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec", Args: "{}"},
 	}})
 	before := trail.size
 	if before == 0 {
@@ -994,7 +994,7 @@ func TestTheNewestLineComesFirst(t *testing.T) {
 	const older = "2026-10-28T09:00:00Z"
 	const newer = "2026-10-28T09:00:00.5Z"
 	line := func(ts string) string {
-		return `{"ts":"` + ts + `","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+		return `{"ts":"` + ts + `","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 	}
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
 	if err := os.WriteFile(path, []byte(line(older)+line(newer)), 0o600); err != nil {
@@ -1043,7 +1043,7 @@ func TestTheDroppingPathKeepsTheNewestLines(t *testing.T) {
 	const s2 = "2026-10-28T09:00:02Z"
 	const s3 = "2026-10-28T09:00:03Z"
 	line := func(ts string) string {
-		return `{"ts":"` + ts + `","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+		return `{"ts":"` + ts + `","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 	}
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
 	// arrival order: s3, s2, h1, s1, half, exact
@@ -1106,11 +1106,11 @@ func TestEveryFreeTextColumnIsScrubbed(t *testing.T) {
 		logx.WithHandler(slog.NewJSONHandler(&logBuf, nil))))
 
 	const secret = "hunter2-plaintext"
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(reg.Record{
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(reg.Record{
 		Gate: invoke.Record{
 			Call: invoke.Call{
 				Name:   "jmsx_exec",
-				Server: "jumpserver-mcp-exec",
+				Server: "jumpserver-exec",
 				Args:   `{"password":"` + secret + `"}`,
 			},
 			Outcome: &invoke.Outcome{Refused: "the password: " + secret + " was refused"},
@@ -1172,7 +1172,7 @@ func TestAFailedRotationKeepsTheArchivedGeneration(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail file did not open")
 	}
@@ -1183,7 +1183,7 @@ func TestAFailedRotationKeepsTheArchivedGeneration(t *testing.T) {
 	}()
 	call := func() {
 		trail.write(reg.Record{Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		}})
 	}
@@ -1235,7 +1235,7 @@ func TestTheCapHoldsEvenWhenTheRotationFails(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail file did not open")
 	}
@@ -1259,7 +1259,7 @@ func TestTheCapHoldsEvenWhenTheRotationFails(t *testing.T) {
 
 	for i := 0; i < 20; i++ {
 		trail.write(reg.Record{Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		}})
 	}
@@ -1287,10 +1287,10 @@ func TestTheLimitHasACeiling(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
 
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	for i := 0; i < MaxReadLimit+10; i++ {
 		trail(reg.Record{Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Allowed: true,
 		}})
 	}
@@ -1328,7 +1328,7 @@ func TestTheAnswerIsTheNewestLines(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 8; i++ {
 		ts := now.Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano)
-		line := `{"ts":"` + ts + `","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+		line := `{"ts":"` + ts + `","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 		f, err := os.OpenFile(newer, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			t.Fatalf("open: %v", err)
@@ -1341,7 +1341,7 @@ func TestTheAnswerIsTheNewestLines(t *testing.T) {
 	past := now.Add(-2 * time.Hour)
 	for i := 0; i < 20; i++ {
 		ts := past.Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano)
-		line := `{"ts":"` + ts + `","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+		line := `{"ts":"` + ts + `","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 		f, err := os.OpenFile(older, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			t.Fatalf("open: %v", err)
@@ -1397,7 +1397,7 @@ func TestTheSinceFilterKeepsOnlyWhatIsAfterIt(t *testing.T) {
 	// moment it was WRITTEN, so a line written now is always "now".
 	cut := time.Now().Add(-time.Hour)
 	line := func(at time.Time) string {
-		return `{"ts":"` + at.Format(time.RFC3339Nano) + `","service":"jumpserver-mcp-exec",` +
+		return `{"ts":"` + at.Format(time.RFC3339Nano) + `","service":"jumpserver-exec",` +
 			`"tool":"jmsx_exec","allowed":true}` + "\n"
 	}
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
@@ -1432,10 +1432,10 @@ func TestWhatMakesALineAFact(t *testing.T) {
 		line string
 		want bool
 	}{
-		{"a call", `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}`, true},
-		{"no tool", `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-mcp-exec","allowed":true}`, false},
-		{"no stamp", `{"service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}`, false},
-		{"an unreadable stamp", `{"ts":"not a moment","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}`, false},
+		{"a call", `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}`, true},
+		{"no tool", `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-exec","allowed":true}`, false},
+		{"no stamp", `{"service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}`, false},
+		{"an unreadable stamp", `{"ts":"not a moment","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}`, false},
 		// ⚠️ No service is NOT a reason to drop the row: the service
 		// filter copes with an empty one, and making it a requirement
 		// would let one missing field blind a whole process's trail.
@@ -1474,8 +1474,8 @@ func TestALineThatIsTooLongDoesNotCostTheRestOfTheFile(t *testing.T) {
 	defer func() { maxTrailLine = old }()
 
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
-	good := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
-	huge := `{"ts":"2026-10-28T09:00:01Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec","args":"` +
+	good := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	huge := `{"ts":"2026-10-28T09:00:01Z","service":"jumpserver-exec","tool":"jmsx_exec","args":"` +
 		strings.Repeat("x", 2000) + `"}` + "\n"
 	if err := os.WriteFile(path, []byte(good+huge+good+good), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -1527,7 +1527,7 @@ func TestTheQueueStaysBounded(t *testing.T) {
 func TestTheTrailFileCarriesTheCap(t *testing.T) {
 	quiet(t)
 	dir := useTempTrail(t)
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail file did not open")
 	}
@@ -1618,10 +1618,10 @@ func TestEveryFreeTextColumnHasACeiling(t *testing.T) {
 	// Longer than the ceiling, in Chinese so that a byte-boundary cut
 	// would break a character.
 	huge := strings.Repeat("审", maxColumn)
-	trail := Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := Trail(Options{Service: "jumpserver-exec", Dir: dir})
 	trail(reg.Record{
 		Gate: invoke.Record{
-			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 			Outcome: &invoke.Outcome{Refused: huge},
 			Stages: []invoke.StageResult{
 				{Stage: "confirm", Allow: false, Reason: huge},
@@ -1831,7 +1831,7 @@ func TestALineOfExactlyTheLimitIsRead(t *testing.T) {
 	maxTrailLine = 512
 	defer func() { maxTrailLine = old }()
 
-	head := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec","args":"`
+	head := `{"ts":"2026-10-28T09:00:00Z","service":"jumpserver-exec","tool":"jmsx_exec","args":"`
 	tail := `"}`
 	pad := maxTrailLine - len(head) - len(tail)
 	if pad < 0 {
@@ -1870,7 +1870,7 @@ func TestALineOfExactlyTheLimitIsRead(t *testing.T) {
 func TestAnEmptyTrailDirectoryReadsNothing(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 	name := filepath.Join(dir, "audit-20261029-123-aaaaaaaa.jsonl")
 	if err := os.WriteFile(name, []byte(line), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -1903,8 +1903,8 @@ func TestAnEmptyTrailDirectoryReadsNothing(t *testing.T) {
 func TestALineThatDoesNotParseIsCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	good := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}`
-	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_`
+	good := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}`
+	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_`
 	path := filepath.Join(dir, "audit-20261029-123-bbbbbbbb.jsonl")
 	if err := os.WriteFile(path, []byte(good+"\n"+bad+"\n"+good+"\n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -1946,12 +1946,12 @@ func TestAPartialWriteDoesNotGlueTheNextLine(t *testing.T) {
 
 	// The first write fails halfway through the line.
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 	// The next one goes through whole.
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call:    invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 		Allowed: true,
 	}})
 	if err := f.Close(); err != nil {
@@ -2050,9 +2050,9 @@ func TestTheTrailHealthCheckAnswers(t *testing.T) {
 func TestABrokenLineAboutSomethingElseIsNotCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	mine := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}`
+	mine := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}`
 	// A line about a DIFFERENT tool, and too long to read.
-	other := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_put_file","args":"` +
+	other := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_put_file","args":"` +
 		strings.Repeat("x", 2_000_000) + `"}`
 	path := filepath.Join(dir, "audit-20261029-123-eeeeeeee.jsonl")
 	if err := os.WriteFile(path, []byte(mine+"\n"+other+"\n"), 0o600); err != nil {
@@ -2087,7 +2087,7 @@ func TestABrokenLineThatCannotBePlacedIsCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
 	// No tool field at all: the reader cannot tell what it is about.
-	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-mcp-exec","tool":`
+	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-exec","tool":`
 	path := filepath.Join(dir, "audit-20261029-123-ffffffff.jsonl")
 	if err := os.WriteFile(path, []byte(bad+"\n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -2110,7 +2110,7 @@ func TestABrokenLineThatCannotBePlacedIsCounted(t *testing.T) {
 // reader takes a stream and not a path.
 func TestAReadThatBreaksHalfwayStillCountsWhatItRead(t *testing.T) {
 	quiet(t)
-	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 
 	kept := &newest{limit: 10}
 	matched, skipped, err := readStream(&brokenReader{data: []byte(line)}, opts10(), kept, time.Now())
@@ -2170,7 +2170,7 @@ func TestTheTrailDoesNotWriteDownAPayload(t *testing.T) {
 	rec := reg.Record{Gate: invoke.Record{
 		Call: invoke.Call{
 			Name:   "jmsx_put_file",
-			Server: "jumpserver-mcp-exec",
+			Server: "jumpserver-exec",
 			Args:   `{"asset":"node-071","remote_path":"/tmp/k","content_base64":"` + key + `"}`,
 		},
 		Allowed: true,
@@ -2180,7 +2180,7 @@ func TestTheTrailDoesNotWriteDownAPayload(t *testing.T) {
 	// exits and both of them have to carry the same, scrubbed text. The
 	// file writer is package-private — Trail is the only thing that
 	// writes it, and Trail scrubs once for both.
-	Trail(Options{Service: "jumpserver-mcp-exec", Dir: dir})(rec)
+	Trail(Options{Service: "jumpserver-exec", Dir: dir})(rec)
 
 	paths, err := filepath.Glob(filepath.Join(dir, trailGlob))
 	if err != nil || len(paths) == 0 {
@@ -2208,7 +2208,7 @@ func TestTheTrailDoesNotWriteDownAPayload(t *testing.T) {
 func TestAFileThatBreaksHalfwayStillHasItsLinesCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	line := `{"ts":"2026-10-29T01:00:00.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 	path := filepath.Join(dir, "audit-20261029-123-99999999.jsonl")
 	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -2242,7 +2242,7 @@ func TestABrokenLineAboutAnotherToolIsNotCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
 	// A line that does not parse, and whose tool is another one.
-	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_put_file","args":"unterminated`
+	bad := `{"ts":"2026-10-29T01:00:01.000000000+08:00","service":"jumpserver-exec","tool":"jmsx_put_file","args":"unterminated`
 	path := filepath.Join(dir, "audit-20261029-123-88888888.jsonl")
 	if err := os.WriteFile(path, []byte(bad+"\n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -2301,11 +2301,11 @@ func TestTheLogLineAndTheFileLineCarryTheSameText(t *testing.T) {
 		// so a shared directory would carry the previous case's line into
 		// this one.
 		caseDir := useTempTrail(t)
-		Trail(Options{Service: "jumpserver-mcp-exec", Dir: caseDir})(reg.Record{
+		Trail(Options{Service: "jumpserver-exec", Dir: caseDir})(reg.Record{
 			Gate: invoke.Record{
 				Call: invoke.Call{
 					Name:   "jmsx_put_file",
-					Server: "jumpserver-mcp-exec",
+					Server: "jumpserver-exec",
 					Args:   c.args,
 				},
 				Allowed: true,
@@ -2359,10 +2359,10 @@ func TestTheLogLineAndTheFileLineCarryTheSameText(t *testing.T) {
 // needs to hear about.
 func TestACutOffValueCountsAsUnknown(t *testing.T) {
 	quiet(t)
-	if got := jsonStringField(`{"ts":"2026-10-29T01:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_e`, "tool"); got != "" {
+	if got := jsonStringField(`{"ts":"2026-10-29T01:00:00Z","service":"jumpserver-exec","tool":"jmsx_e`, "tool"); got != "" {
 		t.Errorf("a cut-off value read as %q, want \"\" (unknown)", got)
 	}
-	if got := jsonStringField(`{"ts":"2026-10-29T01:00:00Z","service":"jumpserver-mcp-exec","tool":"jmsx_exec"}`, "tool"); got != "jmsx_exec" {
+	if got := jsonStringField(`{"ts":"2026-10-29T01:00:00Z","service":"jumpserver-exec","tool":"jmsx_exec"}`, "tool"); got != "jmsx_exec" {
 		t.Errorf("a whole value read as %q, want \"jmsx_exec\"", got)
 	}
 }
@@ -2376,8 +2376,8 @@ func TestACutOffValueCountsAsUnknown(t *testing.T) {
 func TestAStaleHalfWrittenLineIsCounted(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	good := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
-	half := `{"ts":"2026-10-28T09:00:01+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_`
+	good := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	half := `{"ts":"2026-10-28T09:00:01+08:00","service":"jumpserver-exec","tool":"jmsx_`
 	path := filepath.Join(dir, "audit-20261028-1-aaaaaaaa.jsonl")
 	if err := os.WriteFile(path, []byte(good+half), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -2412,7 +2412,7 @@ func TestAProcessThatWritesNothingLeavesNoFile(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
 
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail could not be set up")
 	}
@@ -2426,7 +2426,7 @@ func TestAProcessThatWritesNothingLeavesNoFile(t *testing.T) {
 
 	// The first write creates it.
 	trail.write(reg.Record{Gate: invoke.Record{
-		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-mcp-exec"},
+		Call: invoke.Call{Name: "jmsx_exec", Server: "jumpserver-exec"},
 	}})
 	paths, err = filepath.Glob(filepath.Join(dir, trailGlob))
 	if err != nil {
@@ -2457,7 +2457,7 @@ func TestTheOldTrailFilesArePruned(t *testing.T) {
 		}
 		return p
 	}
-	line := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-mcp-exec","tool":"jmsx_exec","allowed":true}` + "\n"
+	line := `{"ts":"2026-10-28T09:00:00+08:00","service":"jumpserver-exec","tool":"jmsx_exec","allowed":true}` + "\n"
 
 	emptyOld := write("audit-20261028-999911-aaaaaaaa.jsonl", "", 2*time.Hour)
 	emptyNew := write("audit-20261028-999912-bbbbbbbb.jsonl", "", time.Minute)
@@ -2867,7 +2867,7 @@ func TestAReusedPidDoesNotPinADeadFile(t *testing.T) {
 func TestTheWriterReopensItsFileWhenThePrunerTookIt(t *testing.T) {
 	quiet(t)
 	dir := t.TempDir()
-	trail := openTrail(Options{Service: "jumpserver-mcp-exec", Dir: dir})
+	trail := openTrail(Options{Service: "jumpserver-exec", Dir: dir})
 	if trail == nil {
 		t.Fatal("the trail could not be set up")
 	}
@@ -2879,7 +2879,7 @@ func TestTheWriterReopensItsFileWhenThePrunerTookIt(t *testing.T) {
 
 	write := func(tool string) {
 		trail.write(reg.Record{Gate: invoke.Record{
-			Call:    invoke.Call{Name: tool, Server: "jumpserver-mcp-exec"},
+			Call:    invoke.Call{Name: tool, Server: "jumpserver-exec"},
 			Allowed: true,
 		}})
 	}

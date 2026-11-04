@@ -19,8 +19,8 @@ import (
 
 	"github.com/oekit/pkg/convert"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/textx"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/textx"
 )
 
 // List unpacks both shapes JumpServer v5 returns: a bare JSON array (the API

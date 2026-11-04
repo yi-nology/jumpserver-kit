@@ -3,7 +3,7 @@ package risk
 import (
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
 )
 
 // The classification decides whether a command has to be confirmed, so the

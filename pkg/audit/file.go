@@ -42,9 +42,9 @@ import (
 
 	"github.com/oekit/logx"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/fspath"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/reg"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/textx"
+	"github.com/yi-nology/jumpserver-kit/pkg/fspath"
+	"github.com/yi-nology/jumpserver-kit/pkg/reg"
+	"github.com/yi-nology/jumpserver-kit/pkg/textx"
 )
 
 // MaxTrailBytes is how big one trail file may get before it is rotated.

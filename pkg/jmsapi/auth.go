@@ -73,7 +73,7 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/errs"
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 )
 
 // Credential is the material a client needs when it authenticates with a LOGIN
@@ -444,8 +444,8 @@ func PasswordFiles() []string {
 		return nil
 	}
 	return []string{
-		filepath.Join(home, ".config", "jumpserver-mcp", "password"),
-		filepath.Join(home, ".local", "etc", "jumpserver-mcp", "password"),
+		filepath.Join(home, ".config", "jumpserver-mgmt", "password"),
+		filepath.Join(home, ".local", "etc", "jumpserver-mgmt", "password"),
 	}
 }
 
@@ -456,7 +456,7 @@ func OTPSecretFiles() []string {
 		return nil
 	}
 	return []string{
-		filepath.Join(home, ".config", "jumpserver-mcp", "otp"),
-		filepath.Join(home, ".local", "etc", "jumpserver-mcp", "otp"),
+		filepath.Join(home, ".config", "jumpserver-mgmt", "otp"),
+		filepath.Join(home, ".local", "etc", "jumpserver-mgmt", "otp"),
 	}
 }

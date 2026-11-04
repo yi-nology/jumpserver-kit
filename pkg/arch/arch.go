@@ -255,7 +255,7 @@ func packagesNamed(t *testing.T, root, name, modulePath string) []string {
 // 回答的不是同一个问题」，底座越界时说「底座在两个服务之下」。
 //
 // ⚠️ forbidden 里写的是 module path，判定必须带尾斜杠（IsImportOf）：
-// …/jumpserver-mcp 是 …/jumpserver-mcp-exec 的字符串前缀，差一个 "-"，
+// …/jumpserver-mgmt 是 …/jumpserver-exec 的字符串前缀，差一个 "-"，
 // 不带斜杠比就会把执行面当成管理面的一部分。
 // CheckNoForbiddenRequire 让 go.mod 不 require 任何一个被禁的模块。
 //
@@ -265,7 +265,7 @@ func packagesNamed(t *testing.T, root, name, modulePath string) []string {
 // ⇒ 源码与 go.mod 两头都要查：源码查「真的伸手了没有」，go.mod 查「承诺了没有」。
 //
 // ⚠️ 判定用**精确相等**（module path 不会带子路径），别用前缀：
-// …/jumpserver-mcp 是 …/jumpserver-mcp-exec 的字符串前缀（差一个 "-"），
+// …/jumpserver-mgmt 是 …/jumpserver-exec 的字符串前缀（差一个 "-"），
 // 前缀比会把执行面当成管理面的一部分。
 func CheckNoForbiddenRequire(t *testing.T, root, modulePath string, forbidden []string) {
 	t.Helper()
@@ -329,7 +329,7 @@ func parseRequirePaths(body string) map[string]bool {
 // 回答的不是同一个问题」，底座越界时说「底座在两个服务之下」。
 //
 // ⚠️ forbidden 里写的是 module path，判定必须带尾斜杠（IsImportOf）：
-// …/jumpserver-mcp 是 …/jumpserver-mcp-exec 的字符串前缀，差一个 "-"，
+// …/jumpserver-mgmt 是 …/jumpserver-exec 的字符串前缀，差一个 "-"，
 // 不带斜杠比就会把执行面当成管理面的一部分。
 func CheckNoForbiddenImport(t *testing.T, root, modulePath string, forbidden []string) {
 	t.Helper()

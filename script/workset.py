@@ -18,7 +18,7 @@
 约定的形状（与守卫用的是同一套，别另造）：
 
     1. 环境变量 `JMS_SIBLING_ROOTS`（`:` 分隔的目录列表）；
-    2. 没有就用同级目录约定：../jumpserver-mcp、../jumpserver-mcp-exec。
+    2. 没有就用同级目录约定：../jumpserver-mgmt、../jumpserver-exec。
 
 ⚠️ 同级目录约定是**相对脚本自己那个仓的父目录**解析的，不是相对当前工作
 目录 —— 否则「在哪个仓里跑脚本」就会改变工作集。
@@ -28,7 +28,7 @@ import re
 
 # 同级目录约定里认得的仓名。
 # ⚠️ 这三个名字是一份约定（守卫也用同一套）—— 一份拷贝会漂。
-REPO_NAMES = ("jumpserver-mcp-kit", "jumpserver-mcp", "jumpserver-mcp-exec")
+REPO_NAMES = ("jumpserver-kit", "jumpserver-mgmt", "jumpserver-exec")
 
 # 扫源码树时要跳过的目录。
 SKIP_DIRS = (".git", "__pycache__", "bin", "node_modules", "legacy", ".idea")

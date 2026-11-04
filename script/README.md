@@ -24,11 +24,11 @@
 约定的形状（**与守卫用的是同一套，别另造**）：
 
 1. 环境变量 `JMS_SIBLING_ROOTS`（`:` 分隔的目录列表）；
-2. 没有就用同级目录约定：`../jumpserver-mcp`、`../jumpserver-mcp-exec`。
+2. 没有就用同级目录约定：`../jumpserver-mgmt`、`../jumpserver-exec`。
 
 用法：
 
-    JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec \
+    JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec \
         python3 script/mutate-audit.py -v
 
 ## 变异脚本的自检（canary）

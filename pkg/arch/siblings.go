@@ -6,7 +6,7 @@ package arch
 // 能力的措辞），所以「树在哪」得有个约定。三种情况：
 //
 //   - 环境变量 JMS_SIBLING_ROOTS 给了目录列表（":" 分隔）⇒ 用它；
-//   - 没给 ⇒ 用同级目录 ../jumpserver-mcp 与 ../jumpserver-mcp-exec；
+//   - 没给 ⇒ 用同级目录 ../jumpserver-mgmt 与 ../jumpserver-exec；
 //   - 找到了 ⇒ **真跑**（不是跳过）。
 //
 // ⚠️ 找不到 ⇒ 跳过，但**跳过 ≠ 通过**：CI 用 JMS_REQUIRE_SIBLINGS=1
@@ -33,15 +33,15 @@ func SiblingRoots(kitRoot string) []string {
 	}
 	base := filepath.Dir(strings.TrimRight(kitRoot, string(filepath.Separator)))
 	return []string{
-		filepath.Join(base, "jumpserver-mcp"),
-		filepath.Join(base, "jumpserver-mcp-exec"),
+		filepath.Join(base, "jumpserver-mgmt"),
+		filepath.Join(base, "jumpserver-exec"),
 	}
 }
 
 // SiblingServiceTrees 找到两个服务仓（管理面、执行面）。
 //
 // ⚠️ 它按 module path 认人，不按目录名：两个服务仓的 module path 只差一个
-// "-"（…/jumpserver-mcp 与 …/jumpserver-mcp-exec），目录名认不出来。
+// "-"（…/jumpserver-mgmt 与 …/jumpserver-exec），目录名认不出来。
 //
 // ⚠️ 缺树 ⇒ t.Skip（消息写清楚缺哪棵、怎么补）；JMS_REQUIRE_SIBLINGS=1
 // ⇒ t.Fatal（CI 里不许把「没跑」当成「跑过了」）。
@@ -76,7 +76,7 @@ func SiblingServiceTrees(t *testing.T, kitRoot string) []Tree {
 		msg := fmt.Sprintf("the sibling repository %s is not here: this guard needs all "+
 			"three trees at once (the base, the management plane and the execution plane), "+
 			"and %d of them are missing (%s). Put the sibling repositories next to this "+
-			"one (../jumpserver-mcp and ../jumpserver-mcp-exec), or point "+
+			"one (../jumpserver-mgmt and ../jumpserver-exec), or point "+
 			"JMS_SIBLING_ROOTS at them (colon-separated directories). %s",
 			strings.Join(missing, ", "), len(missing), strings.Join(unreadable, "; "),
 			requireSiblingsNote())

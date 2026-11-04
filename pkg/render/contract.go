@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
 )
 
 // ListOf is the answer to a query about many things, whose rows have a shape

@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/arch"
+	"github.com/yi-nology/jumpserver-kit/pkg/arch"
 )
 
 // kitRoot 返回 kit 仓的根。
@@ -97,8 +97,8 @@ func TestTheContractVocabularyIsNamedTheSameEverywhere(t *testing.T) {
 // TestTheSharedBaseDoesNotDependOnAService 守住「底座在两个服务之下」。
 //
 // ⚠️ 判据是**别的 module path**：kit 不得 import 两个服务里的任何一个。
-// 三个 module path 互为字符串前缀（…/jumpserver-mcp 是
-// …/jumpserver-mcp-exec 的前缀，差一个 "-"）⇒ 判定必须带尾斜杠
+// 三个 module path 互为字符串前缀（…/jumpserver-mgmt 是
+// …/jumpserver-exec 的前缀，差一个 "-"）⇒ 判定必须带尾斜杠
 // （pkg/arch.IsImportOf 就是这个形状）。
 func TestTheSharedBaseDoesNotDependOnAService(t *testing.T) {
 	arch.CheckNoForbiddenImport(t, kitRoot(t), arch.ModuleKit,

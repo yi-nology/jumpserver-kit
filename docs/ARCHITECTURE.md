@@ -9,13 +9,13 @@
 
 | 仓 | module path | 是什么 | 产出 |
 |---|---|---|---|
-| [`yi-nology/jumpserver-mcp-kit`](https://github.com/yi-nology/jumpserver-mcp-kit)（本仓） | `github.com/yi-nology/jumpserver-mcp-kit` | **共用底座**（库） | 无二进制（只有 Go 包） |
-| [`yi-nology/jumpserver-mcp`](https://github.com/yi-nology/jumpserver-mcp) | `github.com/yi-nology/jumpserver-mcp` | **管理面** MCP 服务 | 二进制 `jumpserver-mcp`（97 个工具） |
-| [`yi-nology/jumpserver-mcp-exec`](https://github.com/yi-nology/jumpserver-mcp-exec) | `github.com/yi-nology/jumpserver-mcp-exec` | **执行面** MCP 服务 | 二进制 `jumpserver-mcp-exec`（15 个工具） |
+| [`yi-nology/jumpserver-kit`](https://github.com/yi-nology/jumpserver-kit)（本仓） | `github.com/yi-nology/jumpserver-kit` | **共用底座**（库） | 无二进制（只有 Go 包） |
+| [`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt) | `github.com/yi-nology/jumpserver-mgmt` | **管理面** MCP 服务 | 二进制 `jumpserver-mgmt`（97 个工具） |
+| [`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec) | `github.com/yi-nology/jumpserver-exec` | **执行面** MCP 服务 | 二进制 `jumpserver-exec`（15 个工具） |
 
 ```
         ┌──────────────────────────┐
-        │  jumpserver-mcp-kit      │   ← 共用底座（库）
+        │  jumpserver-kit      │   ← 共用底座（库）
         │  pkg/jmsapi  pkg/reg      │     协议层 / 门禁 / 输出契约 / 留痕 /
         │  pkg/render pkg/audit     │     脱敏 / 风险分类 / 失败分类
         │  pkg/redact pkg/risk      │     共用词汇 model/jms
@@ -25,7 +25,7 @@
           ┌──────────┴──────────┐
           │                     │
 ┌─────────▼──────────┐  ┌───────▼────────────────┐
-│ jumpserver-mcp     │  │ jumpserver-mcp-exec    │
+│ jumpserver-mgmt     │  │ jumpserver-exec    │
 │ 管理面              │  │ 执行面                  │
 │ 仓根 = 入口层        │  │ 仓根 = 入口层           │
 │ biz/               │  │ biz/                   │
@@ -34,11 +34,11 @@
 └────────────────────┘  └────────────────────────┘
 ```
 
-**依赖方向是单向的**：两个服务仓 `require github.com/yi-nology/jumpserver-mcp-kit`；
+**依赖方向是单向的**：两个服务仓 `require github.com/yi-nology/jumpserver-kit`；
 底座仓**不 require** 任何一个服务，也**不许 import** 它们。
 
-⚠️ **三个 module path 互为字符串前缀**（`…/jumpserver-mcp` 是
-`…/jumpserver-mcp-exec` 的前缀，差一个 `-`）⇒ **import 判定必须带尾斜杠**
+⚠️ **三个 module path 互为字符串前缀**（`…/jumpserver-mgmt` 是
+`…/jumpserver-exec` 的前缀，差一个 `-`）⇒ **import 判定必须带尾斜杠**
 （`pkg/arch.IsImportOf` 就是这个形状）⇒ 否则底座 import 执行面会被判成
 「import 了管理面」。
 
@@ -80,8 +80,8 @@
 ```
 # 在服务仓根目录（go.work / go.work.sum 已在 .gitignore 里）
 go work init .
-go work use ../jumpserver-mcp-kit
-go work edit -replace github.com/yi-nology/jumpserver-mcp-kit@v0.1.1=../jumpserver-mcp-kit
+go work use ../jumpserver-kit
+go work edit -replace github.com/yi-nology/jumpserver-kit@v0.1.1=../jumpserver-kit
 ```
 
 ⚠️ **`replace` 的版本号要跟 `go.mod` 里 `require` 的那个一致** ——
@@ -105,7 +105,7 @@ go work edit -replace github.com/yi-nology/jumpserver-mcp-kit@v0.1.1=../jumpserv
 
 **兄弟仓在哪**（`pkg/arch/siblings.go`）：
 1. 环境变量 `JMS_SIBLING_ROOTS`（`:` 分隔的目录列表）优先；
-2. 没给 ⇒ 用同级目录约定：`../jumpserver-mcp` 与 `../jumpserver-mcp-exec`；
+2. 没给 ⇒ 用同级目录约定：`../jumpserver-mgmt` 与 `../jumpserver-exec`；
 3. 找到了 ⇒ **真跑**（不是跳过）。
 
 ⚠️ **找不到 ⇒ 跳过，但不是「通过」** ⇒ CI 设 `JMS_REQUIRE_SIBLINGS=1`，
@@ -144,7 +144,7 @@ canary 没变红只有一个可能：变异压根没作用在被变异的代码�
 ⚠️ 两个脚本的**注入方式不一样**：`mutate-audit.py` 用 **overlay**，
 `mutate-version-guard.py` 用**整仓副本**（它要守的那条守卫**在运行时扫源码树**，
 overlay 看不见运行时的读盘）。详见
-[`script/README.md`](https://github.com/yi-nology/jumpserver-mcp-kit/blob/main/script/README.md)。
+[`script/README.md`](https://github.com/yi-nology/jumpserver-kit/blob/main/script/README.md)。
 
 ---
 

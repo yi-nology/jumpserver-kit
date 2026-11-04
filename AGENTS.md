@@ -1,4 +1,4 @@
-# AGENTS.md — jumpserver-mcp-kit 迭代指南
+# AGENTS.md — jumpserver-kit 迭代指南
 
 > 给 AI agent 的作业说明。**改这个仓的代码前先读完本页**，尤其第 2、3 节。
 
@@ -7,8 +7,8 @@
 **它是库，不是服务** —— 本仓没有二进制，也没有配置。
 面向人读的完整说明在 [`README.md`](README.md)，
 **配置与排障看两个服务仓各自的 `docs/CONFIGURATION.md`**
-（[管理面](https://github.com/yi-nology/jumpserver-mcp/blob/main/docs/CONFIGURATION.md) /
-[执行面](https://github.com/yi-nology/jumpserver-mcp-exec/blob/main/docs/CONFIGURATION.md)）。
+（[管理面](https://github.com/yi-nology/jumpserver-mgmt/blob/main/docs/CONFIGURATION.md) /
+[执行面](https://github.com/yi-nology/jumpserver-exec/blob/main/docs/CONFIGURATION.md)）。
 
 ---
 
@@ -16,11 +16,11 @@
 
 | 仓 | 是什么 | 干什么 | 工具数 |
 |---|---|---|---|
-| [`yi-nology/jumpserver-mcp`](https://github.com/yi-nology/jumpserver-mcp) | MCP server `jumpserver` | **管理面** — 改堡垒机自己的配置：资产/账号/权限/标签/命令过滤/用户 | 97 |
-| [`yi-nology/jumpserver-mcp-exec`](https://github.com/yi-nology/jumpserver-mcp-exec) | MCP server `jumpserver-exec` | **执行面** — 经堡垒机在**受管机器**上跑命令、传文件 | 15 |
-| **`yi-nology/jumpserver-mcp-kit`（本仓）** | 共用底座（**库**） | 两个服务**共用**的东西：协议层（`pkg/jmsapi`）、门禁（`pkg/reg`）、结果整形与输出契约（`pkg/render`）、留痕（`pkg/audit`）、脱敏（`pkg/redact`）、风险分类（`pkg/risk`）、失败分类（`pkg/errs`）、契约守卫的机械（`pkg/contractscan`）、架构守卫的机械（`pkg/arch`）、共用词汇（`model/jms`） | — |
+| [`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt) | MCP server `jumpserver` | **管理面** — 改堡垒机自己的配置：资产/账号/权限/标签/命令过滤/用户 | 97 |
+| [`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec) | MCP server `jumpserver-exec` | **执行面** — 经堡垒机在**受管机器**上跑命令、传文件 | 15 |
+| **`yi-nology/jumpserver-kit`（本仓）** | 共用底座（**库**） | 两个服务**共用**的东西：协议层（`pkg/jmsapi`）、门禁（`pkg/reg`）、结果整形与输出契约（`pkg/render`）、留痕（`pkg/audit`）、脱敏（`pkg/redact`）、风险分类（`pkg/risk`）、失败分类（`pkg/errs`）、契约守卫的机械（`pkg/contractscan`）、架构守卫的机械（`pkg/arch`）、共用词汇（`model/jms`） | — |
 
-**依赖方向是单向的**：两个服务仓 `require github.com/yi-nology/jumpserver-mcp-kit`，
+**依赖方向是单向的**：两个服务仓 `require github.com/yi-nology/jumpserver-kit`，
 本仓**不 require** 任何一个服务。
 
 目录按 **CloudWeGo hz 的标准骨架**摆（`cmd/` `biz/` `idl/` `model/` `conf/`
@@ -80,7 +80,7 @@
 ⚠️ ⚠️ **打 tag 之前，main 的 CI 必须已经绿。**
 踩过的坑：`v0.3.0` 是在 CI 还红的时候打的 ⇒ 那个 tag 缺一个源码文件
 （`.gitignore` 的 `coverage.*` 把同名源码 `coverage.go` 吞了）⇒
-`go install github.com/yi-nology/jumpserver-mcp@v0.3.0`
+`go install github.com/yi-nology/jumpserver-mgmt@v0.3.0`
 **编译失败**，而**没有人收到通知**（tag 推上去不会让人看见 CI 红了）。
 ⇒ 顺序是：**推 main → 等 CI 绿 → 打 tag → 推 tag**。
 ⇒ 三个仓的 CI 都配了 `on: push: tags: ['v*']` ⇒ tag 也会跑一遍 CI，
@@ -88,7 +88,7 @@
 
 **跨仓守卫需要三棵树同时在手**（底座的可达性、共用词汇的产出者、能力的措辞）：
 - 兄弟仓在哪：环境变量 `JMS_SIBLING_ROOTS`（`:` 分隔）优先，
-  否则用同级目录约定 `../jumpserver-mcp` 与 `../jumpserver-mcp-exec`；
+  否则用同级目录约定 `../jumpserver-mgmt` 与 `../jumpserver-exec`；
 - 找不到 ⇒ **跳过**（消息写清楚缺哪棵树、怎么补）；
 - ⚠️ **跳过 ≠ 通过** ⇒ CI 设 `JMS_REQUIRE_SIBLINGS=1`，缺树时**失败**而不是跳过。
   机械在 `pkg/arch/siblings.go`。
@@ -426,8 +426,8 @@ import 注册表，反过来 import 就是环。
 8. **自检。** 两个二进制都有 `--doctor`（不依赖 MCP 会话，退出码 0/1/2，
    沿用 OEKIT `pkg/cli` 的约定；**`--help` 的退出码是 0** —— 问帮助不是错误
    路径）和 `tools`（打印工具目录：名字/风险/确认要求）：
-   `jumpserver-mcp --doctor` 查接线 + 堡垒机配置（资产没 protocols / 没账号、
-   授权一个账号都没授予），`jumpserver-mcp-exec --doctor` 查密钥类型（**必须 RSA**）+
+   `jumpserver-mgmt --doctor` 查接线 + 堡垒机配置（资产没 protocols / 没账号、
+   授权一个账号都没授予），`jumpserver-exec --doctor` 查密钥类型（**必须 RSA**）+
    端口 + 真实 koko 登录。改完接线先跑它。
 
 9. **改了契约就重新生成模型**：`./script/gen-idl.sh`（thriftgo slim 模板，产物入库）。
@@ -903,7 +903,7 @@ JumpServer 堡垒机 **admin 用户的 PrivateToken**（40 位十六进制，在
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |
 | **凭据** | 明文凭据不许进仓（`pkg/arch/credential.go` + 三处 `TestThePlaintextCredentialsAreNotInTheRepository`）⇒ 形状 + 语境两半都认；`jms:allow-credential` 是**行级**豁免且**被记账** |
 | **跨仓守卫** | 本仓有三条守卫**要三棵树同时在手**（底座的可达性、共用词汇的产出者、能力的措辞）⇒ 本地要把三个仓并排放着；CI 用 `JMS_REQUIRE_SIBLINGS=1` ⇒ **缺兄弟仓即失败** |
-| 自检 | `jumpserver-mcp --doctor` 与 `jumpserver-mcp-exec --doctor` 退出码 0 |
+| 自检 | `jumpserver-mgmt --doctor` 与 `jumpserver-exec --doctor` 退出码 0 |
 | 真调 | 重启会话后实际调一次新工具；**重启前**可用 JSON-RPC 直接驱动已发布二进制 |
 
 **别把「编译过」说成「已完成」。** 汇报时给出：编译结果、测试结果、工具数变化、发布路径、
@@ -966,8 +966,8 @@ require 并跑一遍它们的测试。**只跑本仓的测试不算交付。**
 | [`idl/jms/`](idl/jms/) | 共用词汇的 thrift 定义 |
 | [`pkg/`](pkg/) | 共用底座：jmsapi / reg / render / errs / redact / risk / textx / fspath / contractscan / arch / testsupport / audit |
 
-**管理面细节**看 [`yi-nology/jumpserver-mcp`](https://github.com/yi-nology/jumpserver-mcp)，
-**执行面细节**看 [`yi-nology/jumpserver-mcp-exec`](https://github.com/yi-nology/jumpserver-mcp-exec)。
+**管理面细节**看 [`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt)，
+**执行面细节**看 [`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec)。
 
 **AI 访问机器一律经堡垒机 koko(2222)**，不接受直连 SSH —— 直连会丢审计录像。
 

@@ -29,9 +29,9 @@ import (
 	"github.com/oagentkit/guardx/invoke"
 	"github.com/oagentkit/guardx/permgate"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/model/jms"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/redact"
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/render"
+	"github.com/yi-nology/jumpserver-kit/model/jms"
+	"github.com/yi-nology/jumpserver-kit/pkg/redact"
+	"github.com/yi-nology/jumpserver-kit/pkg/render"
 )
 
 // Policy is what the gate knows about one tool.

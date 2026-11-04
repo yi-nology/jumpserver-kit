@@ -49,7 +49,7 @@ import (
 	"github.com/oekit/concurrency/retry"
 	"golang.org/x/time/rate"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/errs"
+	"github.com/yi-nology/jumpserver-kit/pkg/errs"
 )
 
 // Options configures a Client.

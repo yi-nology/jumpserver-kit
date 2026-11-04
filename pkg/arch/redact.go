@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/jumpserver-mcp-kit/pkg/redact"
+	"github.com/yi-nology/jumpserver-kit/pkg/redact"
 )
 
 // CheckCredentialParameters 用仓自己的参数表校住脱敏器的词表。

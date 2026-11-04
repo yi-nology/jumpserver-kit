@@ -12,7 +12,7 @@
 
 工作集（哪些仓参与这一轮）：
 
-    JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec
+    JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec
 
 没有这个环境变量时用同级目录约定（见 script/workset.py）。
 
@@ -48,14 +48,14 @@ ROOT = workset.own_root(__file__)
 ROOTS = workset.roots(__file__)
 
 # 副本里三个仓**保持原来的目录名**并排放在 OUT/ws/ 下 ⇒ go.work 里的相对
-# 路径（../jumpserver-mcp-kit）与守卫的同级目录约定在副本里照样成立。
+# 路径（../jumpserver-kit）与守卫的同级目录约定在副本里照样成立。
 WS = os.path.join(OUT, "ws")
 COPY_ROOTS = [os.path.join(WS, os.path.basename(r)) for r in ROOTS]
 COPY_SIBLING_ENV = ":".join(COPY_ROOTS)
 
 # 两个服务仓：入口层的守卫在它们各自的 internal/arch/ 里。
-MGMT = "jumpserver-mcp"
-EXEC = "jumpserver-mcp-exec"
+MGMT = "jumpserver-mgmt"
+EXEC = "jumpserver-exec"
 
 
 def repo_by_name(name):
@@ -120,7 +120,7 @@ mut("子目录里长出一个 package main", MGMT, {
 # ⚠️ 用**空导入**（_）��� 引用它 ⇒ 编译得过 ⇒ 变红只能来自守卫。
 mut("internal/ 的包 import 了 cmd/", MGMT, {
     "internal/repository/zz_stray.go":
-        "package repository\n\nimport _ \"github.com/yi-nology/jumpserver-mcp/cmd/serve\"\n",
+        "package repository\n\nimport _ \"github.com/yi-nology/jumpserver-mgmt/cmd/serve\"\n",
 }, "TestTheBinariesAreTheOutermostLayer")
 
 # M3 「cmd/ 下多了一个二进制」：子命令是**入口层 import 的普通包**，不是各自
@@ -134,7 +134,7 @@ mut("cmd/ 下多了一个二进制", EXEC, {
 # 它只许向里叫。⚠️ 这一条钉住的是「判据没有把入口层自己也当成越界者」。
 mut("边界：cmd/ 根上的包 import 了子命令（仍然绿）", MGMT, {
     "cmd/zz.go":
-        "package cmd\n\nimport _ \"github.com/yi-nology/jumpserver-mcp/cmd/serve\"\n",
+        "package cmd\n\nimport _ \"github.com/yi-nology/jumpserver-mgmt/cmd/serve\"\n",
 }, "TestTheBinariesAreTheOutermostLayer", expect="green")
 
 

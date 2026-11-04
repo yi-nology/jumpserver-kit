@@ -15,7 +15,7 @@
 
 工作集（哪些仓参与这一轮）：
 
-    JMS_SIBLING_ROOTS=/path/to/jumpserver-mcp:/path/to/jumpserver-mcp-exec
+    JMS_SIBLING_ROOTS=/path/to/jumpserver-mgmt:/path/to/jumpserver-exec
 
 没有这个环境变量时用同级目录约定（见 script/workset.py）。
 
@@ -56,9 +56,9 @@ WS = os.path.join(OUT, "ws")
 COPY_ROOTS = [os.path.join(WS, os.path.basename(r)) for r in ROOTS]
 COPY_SIBLING_ENV = ":".join(COPY_ROOTS)
 
-MGMT = "jumpserver-mcp"
-EXEC = "jumpserver-mcp-exec"
-KIT = "jumpserver-mcp-kit"
+MGMT = "jumpserver-mgmt"
+EXEC = "jumpserver-exec"
+KIT = "jumpserver-kit"
 
 # The guard: one name, three entry points (the kit itself and the two
 # services).
