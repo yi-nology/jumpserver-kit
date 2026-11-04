@@ -349,7 +349,7 @@ import 注册表，反过来 import 就是环。
    ⚠️ **形状已知的工具要直接产出契约类型，不要现拼 map。**
    map 的键名写错编译期不报错（少一个字段要等运行时），而契约类型写错
    编译期就红。**两个面现在都是这么做的**，而且有**第三道守卫**盯着这件事：
-   `internal/arch/answer_test.go` 扫源码，发现「`render.Text` 拿到的是手拼
+   底座的 `pkg/arch/answer.go` 扫源码（服务仓的薄壳调用它），发现「`render.Text` 拿到的是手拼
    map」或「列表的行是手拼 map」就红。
    ⚠️ 这道守卫第一次跑就报了 **82 处**：那些答复从契约落地那天起就一直
    是手拼的键，只有 schema 说的是另一回事 —— SDK 分不出这两种答复
@@ -849,7 +849,7 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 | 静态检查 | `go vet ./...` 无错 |
 | 工具数 | 管理面 **97**（`biz/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `internal/service/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
 | 目录一致 | 策略表与注册表必须一一对应（`policy_test.go` 会查） |
-| 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（`internal/arch/answer_test.go`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
+| 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（底座 `pkg/arch/answer.go` + 服务仓薄壳的 `TestTheAnswerTypesAreFoundMechanically`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |
 | **跨仓守卫** | 本仓有三条守卫**要三棵树同时在手**（底座的可达性、共用词汇的产出者、能力的措辞）⇒ 本地要把三个仓并排放着；CI 用 `JMS_REQUIRE_SIBLINGS=1` ⇒ **缺兄弟仓即失败** |
 | 自检 | `jumpserver-mcp --doctor` 与 `jumpserver-mcp-exec --doctor` 退出码 0 |
