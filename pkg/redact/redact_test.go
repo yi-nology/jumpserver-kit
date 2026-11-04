@@ -850,7 +850,7 @@ func TestTheTrailMasksTheCommandLineShapes(t *testing.T) {
 
 // The two paths must agree on WHICH shapes are credentials.
 //
-// ⚠️ The answer path (biz/jumpserver/handler) masks "mysql -uroot
+// ⚠️ The answer path (biz/handler) masks "mysql -uroot
 // --password secret" and the trail's rule did not ⇒ the same word, the
 // same shape, masked on one path and not the other ⇒ exactly the drift
 // this repository's whole exercise is about.

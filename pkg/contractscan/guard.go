@@ -266,7 +266,7 @@ func (s Scope) scanRoots(t *testing.T) []Root {
 // 而目录名一变守卫就报「这个目录搬走了」—— 一次与契约毫无关系的红。
 // ⇒ 认树认 **module path**（go.mod 里那一行）：那是树的身份，搬到哪里都一样。
 //
-// ⚠️ 但**服务仓的守卫根不是 module 根**（它是 `biz/jumpserver` 这种子目录），
+// ⚠️ 但**服务仓的守卫根不是 module 根**（它是 `biz` 这种子目录），
 // 那里没有 go.mod ⇒ 那种树仍然按目录基名认（RootBase）。
 func assertTree(t *testing.T, path, base, module, world string) {
 	t.Helper()

@@ -847,7 +847,7 @@ https://h/api` 里 URL 要留着；而 Digest 的**每一个参数**（`response
 | 单元测试 | `go test ./...` 必须全绿 |
 | 格式化 | `gofmt -l .` 无输出 |
 | 静态检查 | `go vet ./...` 无错 |
-| 工具数 | 管理面 **97**（`biz/jumpserver/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `internal/service/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
+| 工具数 | 管理面 **97**（`biz/router/policy_test.go` 钉住这个数）/ 执行面 **15**（无 REST 凭据时 **14** —— `internal/service/policy/policy_test.go` 钉住的是**名字集合**，`jmsx_inventory` 只在有 API client 时注册 ⇒ 集合里没有它） |
 | 目录一致 | 策略表与注册表必须一一对应（`policy_test.go` 会查） |
 | 契约 | 契约类型必须真被产出（三道 `contract_test.go`）；**答案本身必须是契约类型**（`internal/arch/answer_test.go`：不许手拼 map 的答案或行）；两个服务都不许退回自由 map（`render.Object` / `render.List` 已删除） |
 | 分层 | 共用底座不得依赖任何服务；两个服务不得互相 import；IDL/包/模型三名对齐（`pkg/arch` + 各仓的 `internal/arch/`） |

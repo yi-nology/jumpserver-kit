@@ -7,7 +7,7 @@ package jmsapi
 // there is no chat_ai application in v4's tree at all). What is NOT checked
 // here is any behaviour of a real v4 deployment: there is no v4 bastion to
 // point these at, so these tests pin the DECISION the client makes, not the
-// deployment's answer. The live check lives in internal/jumpserver/livetest,
+// deployment's answer. The live check lives in internal/repository/livetest,
 // and it is gated.
 
 import (
