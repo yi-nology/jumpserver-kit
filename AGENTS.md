@@ -281,13 +281,13 @@ import 注册表，反过来 import 就是环。
 以管理面加一个只读查询为例（执行面同理，只是层的位置不一样）：
 
 0. **先想清楚代码该落在哪一层**（这是这一版架构的核心，别跳过）：
-   - 工具本身（解码参数、编排调用、拼结果）→ 服务仓的 `biz/<面>/handler/`
-   - 领域规则（「这个授权到底能不能让人进去」这类**判断**）→ 服务仓的 `biz/<面>/service/`
+   - 工具本身（解码参数、编排调用、拼结果）→ 服务仓的 `biz/handler/`
+   - 领域规则（「这个授权到底能不能让人进去」这类**判断**）→ 服务仓的 `internal/service/`
      ——写成**纯函数**，不碰网络，这样能离线单测
    - 堡垒机的资源与数据 → 服务仓的 `internal/repository/`
    - URL 怎么拼、响应长什么样 → **本仓的 `pkg/jmsapi/`**（**别在别处再写一份**）
 
-1. **在服务仓的 `biz/<面>/handler/` 里写实现。** 按职责选文件（一个域一个文件）。
+1. **在服务仓的 `biz/handler/` 里写实现。** 按职责选文件（一个域一个文件）。
    管理面 `biz/handler/`：
 
    | 文件 | 装什么 |
@@ -314,7 +314,7 @@ import 注册表，反过来 import 就是环。
    /多机/后台）、`inventory.go`（资产清单）、`plan.go`（演练的成本估算）、
    `dryrun.go`+`blocked.go`（演练与拒绝的答复）。
 
-   - 新领域 → **新建 `biz/<面>/handler/<domain>.go`**，别往 `admin.go` 里堆。
+   - 新领域 → **新建 `biz/handler/<domain>.go`**，别往 `admin.go` 里堆。
 
 2. **用 `reg.Add` 注册，不要用 `mcp.AddTool`。**
    `reg.Add(reg, &mcp.Tool{Name: ..., Description: ...}, func(ctx, req, args) {...})`
@@ -341,7 +341,7 @@ import 注册表，反过来 import 就是环。
    服务端会**在返回前按这个 schema 校验**（`render.Text` 把值交回 SDK），
    形状不对就报错，不会悄悄返回一个别的形状。列表类工具统一用
    `render.ListOf[行类型]` 信封（`count`/`total`/`truncated`/`items`/`note`）。
-   ⚠️ 少了 `OutputSchema` 的工具会被服务仓的 `biz/<面>/router/policy_test.go` 拦下；
+   ⚠️ 少了 `OutputSchema` 的工具会被服务仓的 `biz/router/policy_test.go` 拦下；
    让列表的行退回自由 map 的，会被管理面的 `biz/router/shape_test.go` 拦下。
    ⚠️ **自由行的出口已经没有了**：`render.List`（行是自由 map）与
    `render.Object`（整个答复是自由 map）都已删除。写不出行类型就是契约没写完。
@@ -363,7 +363,7 @@ import 注册表，反过来 import 就是环。
    类型，区别只在填了哪些字段 —— 否则「results 在演练时是 `{}`、被拦时是
    `[]`」这种同名字段多种含义会一直漂移。
 
-4. **在服务仓的 `biz/<面>/policy/policy.go` 里给它分类。** 每个工具一条：
+4. **在服务仓的 `internal/service/policy/policy.go` 里给它分类。** 每个工具一条：
    - 只读 → `{Risk: jms.Risk_read}`
    - 写操作 → `{Risk: jms.Risk_write, Confirm: "set confirm=true to ..."}`
    - 不可逆（删除资产/权限）→ `jms.Risk_destructive`，description 里写明「不可逆 + 影响范围」
@@ -380,10 +380,10 @@ import 注册表，反过来 import 就是环。
    这一行的形状：**`allowed=false`、`failed=true`、`stages[]` 为空**（门禁没跑过）
    + `error` 是 SDK 的拒绝理由 ⇒ 读的人靠**stages 为空**认出它不是门禁拒的。
 
-5. **写测试。** 服务仓的 `biz/<面>/handler/*_test.go`（工具行为）、
+5. **写测试。** 服务仓的 `biz/handler/*_test.go`（工具行为）、
    `biz/<面>/router/policy_test.go`（目录与注册表一致、门禁不可绕过、每个工具都声明了输出形状），
    `pkg/reg/registry_test.go`（门禁机制，在本仓），
-   `biz/<面>/model/<包名>/contract_test.go`（**契约类型必须真被产出**）。
+   `biz/model/<包名>/contract_test.go`（**契约类型必须真被产出**）。
    **新工具要有覆盖它的测试**，否则等于没写。
 
    ⚠️ **写测试的形状只能对着假堡垒机验**：它们会改真数据，不能真调。

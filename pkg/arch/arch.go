@@ -84,11 +84,17 @@ func CheckBinariesAreOutermost(t *testing.T, root, modulePath string) {
 	t.Helper()
 	root = absRoot(t, root)
 	tree := Tree{Root: root, ModulePath: modulePath}
-	cmdPrefix := modulePath + "/cmd/"
+	cmdPkg := modulePath + "/cmd"
+	cmdPrefix := cmdPkg + "/"
 	for _, f := range goFilesOrFatal(t, root) {
 		// The entry layer may call inward.
+		//
+		// ⚠️ 三个位置都算「入口层」：仓根本身、`cmd/` 下的包、以及
+		// **`cmd/` 根上那个包**（一个叫 `cmd` 的包，文件直接放在
+		// `cmd/` 里）。⚠️ 少了第三个的话，一个住在 `cmd/` 里的文件会被
+		// 判成「不是入口层」⇒ 它 import `cmd/<子命令>` 时会**误报**。
 		self := tree.PackagePath(f)
-		if self == modulePath || strings.HasPrefix(self, cmdPrefix) {
+		if self == modulePath || self == cmdPkg || strings.HasPrefix(self, cmdPrefix) {
 			continue
 		}
 		for _, imp := range importsOrFatal(t, f) {
