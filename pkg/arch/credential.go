@@ -35,6 +35,12 @@ package arch
 // cannot see those, and a guard that claimed it could would be lying
 // about its own reach. What it does catch is the failure that actually
 // happened here: a credential typed into a file and pushed.
+//
+// ⚠️ Two more shapes are OUT of reach of a line scanner, and are
+// documented as boundaries instead of half-caught: a YAML block scalar
+// ("token: |" and the value on the next line) and an AWS Access Key ID
+// (AKIA…, twenty characters — an identifier, not the secret; the secret
+// itself is caught like any other).
 
 import (
 	"fmt"
@@ -97,12 +103,46 @@ type CredentialReport struct {
 // stops being read. A line-scoped one says "this line is ABOUT
 // credentials, not a credential" — and the next line is still read.
 //
-// ⚠️ It exempts the line it is ON and the line right after it (a marker
-// on the line above a long literal is the usual way to write it).
+// ⚠️ The marker has to stand in a COMMENT and it has to be ANCHORED
+// (markerWholeLineRE / markerTrailingRE below) — a bare "does the line
+// contain the marker" test also fires on a documentation line that
+// merely EXPLAINS the marker, and the line under that explanation
+// silently stops being read. That is not hypothetical: the first
+// version of this guard exempted exactly that way, and four prose lines
+// in this repository's own AGENTS.md and CHANGELOG.md were accounted
+// for as legitimate exemptions while exempting their neighbours.
+//
+// ⚠️ Two anchored shapes, two scopes (BOTH inside a comment):
+//
+//	# jms:allow-credential          (alone on its line) ⇒ the NEXT line
+//	token = "…"  # jms:allow-credential              ⇒ ITS OWN line
+//
+// ⚠️ A bare marker line (no comment prefix) is NOT a marker: that
+// shape is how a documentation list of markers is written.
 //
 // ⚠️ Every exemption is ACCOUNTED FOR: the guard prints the lines it
 // exempted, so a reviewer sees them instead of having to go looking.
 const allowMarker = "jms:allow-credential"
+
+var (
+	// markerWholeLineRE is the marker ALONE on its line INSIDE A COMMENT
+	// (a trailing explanation is not a marker). ⚠️ The comment prefix is
+	// REQUIRED, not optional: a bare marker line is how a documentation
+	// LIST of markers is written ("可用标记：jms:allow-credential" alone
+	// on a line), and that line would silently exempt whatever follows
+	// it — the same prose-blindness the trailing anchor fixed, one shape
+	// over. "The marker has to stand in a COMMENT" (above) is the
+	// contract; the regex enforces it.
+	markerWholeLineRE = regexp.MustCompile(
+		`^\s*(?:#|//|--|;|/\*+|\*)\s*` + allowMarker + `\s*(?:\*/)?\s*$`)
+
+	// markerTrailingRE is the marker at the END of a line, inside a
+	// comment. ⚠️ The comment separator is part of the contract: prose
+	// that ends with the marker ("the marker is called
+	// jms:allow-credential") is NOT a marker.
+	markerTrailingRE = regexp.MustCompile(
+		`(?:#|//|--|;)\s*` + allowMarker + `\s*$`)
+)
 
 // incidentKeys are key names that the shared word list does not know but
 // that this repository's own history leaked under.
@@ -118,13 +158,16 @@ const allowMarker = "jms:allow-credential"
 // ordinary names for a credential that the suffix rule misses (the shared
 // list knows "credential", not "credentials").
 //
-// ⚠️ They are matched EXACTLY, not as a suffix: as a suffix, "auth"
-// would also claim "oauth", and a false claim is a false alarm.
-var incidentKeys = map[string]bool{
-	"tok":         true,
-	"auth":        true,
-	"credentials": true,
-}
+// ⚠️ They are matched EXACTLY, or with a SEPARATOR BOUNDARY ("my_tok",
+// "api-tok", "my_tok2"), never as a bare suffix: as a bare suffix,
+// "auth" would also claim "oauth", and a false claim is a false alarm.
+// ⚠️ The boundary also keeps this list from silently becoming a second
+// copy of the shared list's semantics: the shared list is an UNBOUNDED
+// suffix match ("mytoken" counts) because the upstream rules it must
+// cover are; this list is bounded because it would otherwise claim
+// words, not names.
+var incidentKeyRE = regexp.MustCompile(
+	`(?i)^(?:.*[_\-.])?(?:tok|auth|credentials)(?:[_\-.]?\d+)?$`)
 
 // The rules.
 //
@@ -132,15 +175,30 @@ var incidentKeys = map[string]bool{
 // is unambiguous on its own: a private key block is never a commit SHA
 // and never a placeholder.
 //
-// ⚠️ The three key/value rules cover the THREE ways a credential turns up
-// in a script or a config — and they are three because the leak this
-// guard answers to lived in all three:
+// ⚠️ The key/value rules cover the ways a credential turns up in a
+// script or a config — and there are several because the leak this
+// guard answers to lived in three of them AT ONCE:
 //
 //	TOK = "…"                                  (assignment)
 //	env.setdefault("JUMPSERVER_TOKEN", "…")    (positional argument)
 //	JUMPSERVER_TOKEN="$JUMPSERVER_TOKEN:-…}" (shell default value)
 //
 // A rule that only knew the first one would have missed the accident.
+//
+// ⚠️ On top of that there are the shapes a plain "key = value" rule
+// cannot see at all:
+//
+//	token := "…"               (Go/Python short declaration)
+//	password <…>               (.netrc: whitespace is the separator)
+//	url: db://user:pass@host    (credential inside a URL)
+//	…?token=…&a=1              (credential inside a query string)
+//
+// ⚠️ The whitespace form is a SEPARATE rule on purpose: if the
+// whitespace separator lived inside keyValueRE, a line like
+// "export JUMPSERVER_TOKEN=<…>" would be swallowed as ONE match (key
+// "export", value the whole assignment) and the real pair would never
+// be looked at. Two regexes scan the line independently ⇒ neither can
+// hide the other's pair.
 var (
 	// privateKeyBlockRE matches the header of a PEM private key.
 	privateKeyBlockRE = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)
@@ -166,7 +224,19 @@ var (
 	// credential-shaped?" — is asked afterwards by
 	// isCredentialShapedValue, which knows the difference between a
 	// secret and a sentence.
-	keyValueRE = regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_.-]*)"?\s*[:=]\s*["']?([A-Za-z0-9+/=_-]{16,})["']?`)
+	keyValueRE = regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_.-]*)["'\x60]?\s*(?:=|:=|:)\s*["'\x60]?([A-Za-z0-9+/=_-]{16,})["'\x60]?`)
+
+	// whitespaceKVRE matches the shapes where WHITESPACE is the only
+	// separator between the key and the value: ".netrc"
+	// ("machine … password <…>") and its cousins.
+	//
+	// ⚠️ The value has to be the LAST thing on the line (an end-of-line
+	// comment is allowed). That is what keeps this rule from claiming an
+	// assignment under the wrong key: in "export JUMPSERVER_TOKEN=<…>"
+	// the whitespace rule would otherwise read key "export" and value
+	// "JUMPSERVER_TOKEN" — while the key/value rule, scanning the same
+	// line independently, already has the real pair.
+	whitespaceKVRE = regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_.-]*)[ \t]+["'\x60]?([A-Za-z0-9+/_-]{16,})["'\x60]?[ \t]*(?:[#;].*)?$`)
 
 	// positionalRE matches a credential passed as a POSITIONAL argument:
 	// env.setdefault("JUMPSERVER_TOKEN", "…").
@@ -179,9 +249,41 @@ var (
 	// JUMPSERVER_TOKEN="$JUMPSERVER_TOKEN:-…}".
 	//
 	// ⚠️ The value sits behind a ":-" (or "-", ":=", "=") inside the
-	// braces ⇒ neither the key/value rule nor the positional rule can
-	// reach it.
+	// braces.
+	//
+	// ⚠️ The bare "-" shape is the one ONLY this rule sees: the ":-"
+	// variant is ALSO matched by the key/value rule (as key "VAR" and
+	// value "-…" — the dash is inside the value alphabet) and lands on
+	// THAT rule's Kind ⇒ a test that pins THIS rule has to use the bare
+	// "-" shape and assert the Kind. (This rule was once "pinned" by a
+	// ":-" fixture that any rule would have caught — the test stayed
+	// green with the rule deleted.)
 	defaultValueRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_.-]*)(?::-|-|:=|=)([A-Za-z0-9+/=_-]{16,})\}`)
+
+	// urlCredentialRE matches a credential EMBEDDED in a URL:
+	// db://deploy:<…>@db.internal.
+	//
+	// ⚠️ There is no key name to check in this shape — a user name is a
+	// user name ⇒ the password alone has to look like a credential
+	// (isURLCredentialValue: shaped, or opaque and long enough not to be
+	// a word). "https://user:password@host" is documentation, not a leak.
+	//
+	// ⚠️ The password runs to the LAST "@" on purpose: a password may
+	// contain "@" itself, and stopping at the first one would leave the
+	// tail of the password in the clear.
+	urlCredentialRE = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://([^:/\s]+):([^/\s]*)@`)
+
+	// urlQueryCredentialRE matches a credential in a QUERY STRING
+	// parameter: …?token=<…>&a=1.
+	//
+	// ⚠️ What the key/value rule MISSES here: a plain "?token=<forty
+	// hex>" it does catch (key "token", separator "="), but a URL whose
+	// value carries dots or percent-encoding (a JWT, a percent-encoded
+	// token) escapes its value alphabet ⇒ the query string needs its own
+	// rule. The value runs to the next "&", "#" or space; the OTHER
+	// parameters are not part of the match ⇒ the line still says what
+	// was run.
+	urlQueryCredentialRE = regexp.MustCompile(`(?i)[?&]([A-Za-z_][A-Za-z0-9_.-]*)=([^&#\s"']+)`)
 )
 
 // The lengths that decide whether a value is credential-shaped.
@@ -300,13 +402,42 @@ func isTextFile(path string) bool {
 	if textNames[lower] {
 		return true
 	}
+	// A VARIANT of a known name is read too: "Dockerfile.prod",
+	// "Makefile.local" — the suffix says which environment, not what
+	// the file is. ⚠️ A name with a dot of its own (".gitignore") is
+	// not a prefix host.
+	for name := range textNames {
+		if !strings.Contains(name, ".") && strings.HasPrefix(lower, name+".") {
+			return true
+		}
+	}
 	// A DOTFILE is read whatever comes after the dot: ".env", ".env.local",
 	// ".npmrc.local" ⇒ they are all configuration, and configuration is
 	// where a credential sits.
 	if strings.HasPrefix(lower, ".") {
 		return true
 	}
-	return textExtensions[strings.ToLower(filepath.Ext(base))]
+	if ext := strings.ToLower(filepath.Ext(base)); ext != "" {
+		return textExtensions[ext]
+	}
+	// NO SUFFIX AT ALL ("id_rsa", "id_ed25519"): the name says nothing
+	// a whitelist could key on ⇒ read the head and look for a PEM
+	// header. ⚠️ Only the head is read: a file is not slurped to decide
+	// whether to read it.
+	return looksLikePEMHead(path)
+}
+
+// looksLikePEMHead says whether a file starts with a PEM private key
+// header.
+func looksLikePEMHead(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	return privateKeyBlockRE.Match(head[:n])
 }
 
 // scanText applies the rules to one file's text.
@@ -320,10 +451,15 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 	for i, line := range lines {
 		ln := i + 1
 
-		// The marker on THIS line, or on the line right above it.
-		marked := strings.Contains(line, allowMarker)
+		// The marker, ANCHORED, on THIS line or on the line right above it:
+		// a trailing marker (a comment at the END of the line) exempts its
+		// OWN line; a marker alone on its line exempts the NEXT one.
+		// The question "does the line contain the marker" is not enough —
+		// see allowMarker above: a documentation line that merely EXPLAINS
+		// the marker must not exempt anything.
+		marked := markerTrailingRE.MatchString(line) || markerWholeLineRE.MatchString(line)
 		if !marked && i > 0 {
-			marked = strings.Contains(lines[i-1], allowMarker)
+			marked = markerWholeLineRE.MatchString(lines[i-1])
 		}
 		if marked {
 			allowances = append(allowances, fmt.Sprintf("%s:%d", rel, ln))
@@ -336,10 +472,35 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 			})
 		}
 
+		// hitPairs: one line must not be reported twice for the same
+		// secret. ⚠️ Deduped by VALUE, not by (key, value): the shapes
+		// disagree about the key while carrying the same secret —
+		// "Authorization: Bearer <…>" is also textually "Bearer <…>"
+		// beside a whitespace (key "Bearer"), and "?token=<forty hex>"
+		// is also "token:<forty hex>".
+		hitPairs := map[string]bool{}
+
 		if m := authHeaderRE.FindStringSubmatch(line); m != nil {
+			hitPairs[m[2]] = true
 			hits = append(hits, CredentialHit{
 				File: rel, Line: ln, Kind: "an Authorization header carrying a value",
 				Key: m[1],
+			})
+		}
+
+		// A credential EMBEDDED in a URL. The shape has no key name —
+		// a user name is a user name ⇒ Key stays empty (like the PEM
+		// rule) and the file:line leads the reader.
+		for _, m := range urlCredentialRE.FindAllStringSubmatch(line, -1) {
+			if !isURLCredentialValue(m[2]) {
+				continue
+			}
+			if hitPairs[m[2]] {
+				continue
+			}
+			hitPairs[m[2]] = true
+			hits = append(hits, CredentialHit{
+				File: rel, Line: ln, Kind: "a credential embedded in a URL",
 			})
 		}
 
@@ -350,6 +511,7 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 			{keyValueRE, "a credential-shaped value under a credential key"},
 			{positionalRE, "a credential-shaped value passed under a credential key"},
 			{defaultValueRE, "a credential-shaped value used as a default"},
+			{whitespaceKVRE, "a credential-shaped value beside a credential key (whitespace-separated)"},
 		} {
 			for _, m := range rule.rx.FindAllStringSubmatch(line, -1) {
 				key, value := m[1], m[2]
@@ -359,11 +521,39 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 				if !isCredentialShapedValue(value) {
 					continue
 				}
+				if hitPairs[value] {
+					continue
+				}
+				hitPairs[value] = true
 				hits = append(hits, CredentialHit{
 					File: rel, Line: ln, Kind: rule.kind,
 					Key: key,
 				})
 			}
+		}
+
+		// A credential in a QUERY STRING parameter. ⚠️ The key/value rule
+		// sees the plain "?token=<forty hex>" shape but not values with
+		// dots or percent-encoding (JWT-shaped tokens) ⇒ the parameter
+		// needs its own rule. ⚠️ The value is checked against the rules
+		// above so that a "?token=<forty hex>" line is reported once, not
+		// twice.
+		for _, m := range urlQueryCredentialRE.FindAllStringSubmatch(line, -1) {
+			key, value := m[1], m[2]
+			if hitPairs[value] {
+				continue
+			}
+			if !isCredentialKeyName(key) {
+				continue
+			}
+			if !isURLCredentialValue(value) {
+				continue
+			}
+			hitPairs[value] = true
+			hits = append(hits, CredentialHit{
+				File: rel, Line: ln, Kind: "a credential in a URL query parameter",
+				Key: key,
+			})
 		}
 	}
 	return hits, allowances
@@ -373,14 +563,16 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 //
 // ⚠️ Two sources, and the difference matters: the shared word list (the
 // one the audit trail and the answer path use) knows the ordinary names;
-// the incident list knows the abbreviation this repository's own history
-// leaked under. ⚠️ The incident list is matched EXACTLY — as a suffix it
-// would claim innocent names.
+// the incident list (incidentKeyRE above) knows the abbreviations this
+// repository's own history leaked under. ⚠️ The incident list matches
+// EXACTLY or on a SEPARATOR BOUNDARY ("my_tok", "api-tok", "my_tok2"),
+// never as a bare suffix: as a bare suffix "auth" would also claim
+// "oauth", and a false claim is a false alarm.
 func isCredentialKeyName(key string) bool {
 	if redact.IsCredentialKey(key) {
 		return true
 	}
-	return incidentKeys[strings.ToLower(key)]
+	return incidentKeyRE.MatchString(key)
 }
 
 // isCredentialShapedValue says whether a value looks like a secret.
@@ -407,6 +599,50 @@ func isCredentialShapedValue(v string) bool {
 		return true
 	}
 	return false
+}
+
+// isURLCredentialValue says whether the credential part of a URL (the
+// password, or a query parameter value) looks like a credential.
+//
+// ⚠️ It is LOOSER than isCredentialShapedValue on purpose: a URL
+// password or a query token is often shorter than a body credential,
+// and "opaque and at least eight characters" is what separates
+// "MyP4ssw0rd@host" from "password@host" — a word, and documentation.
+//
+// ⚠️ OPAQUE ALONE IS NOT ENOUGH — it only asks for "a digit, or a mix
+// of cases", and a run of CJK prose next to an uppercase acronym
+// passes that ("abc）散文…URL"), as does a fragment of SOURCE CODE
+// ("\\\"+aHexValue()+\"") and a redaction placeholder
+// ("[REDACTED]@ss"). All three were false positives of this guard on
+// its own repository. ⇒ the value must also live in the URL
+// credential ALPHABET below: base64url plus the characters a
+// percent-encoded or JWT-shaped credential really carries — "." (JWT
+// segments), "%" (percent-encoding), "@" (a password may contain one;
+// the match runs to the LAST "@"), "=" (base64 padding). Anything
+// else — a quote, a bracket, a parenthesis, a CJK character — is not
+// a credential standing in a URL, it is prose or code ABOUT one.
+func isURLCredentialValue(v string) bool {
+	if isCredentialShapedValue(v) {
+		return true
+	}
+	return len(v) >= 8 && looksOpaque(v) && isURLCredentialAlphabet(v)
+}
+
+// isURLCredentialAlphabet says whether every character belongs to the
+// alphabet a credential standing in a URL can be written in.
+func isURLCredentialAlphabet(v string) bool {
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r == '+' || r == '/' || r == '=' || r == '_' || r == '-':
+		case r == '.' || r == '%' || r == '@':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isHexString says whether every character is a hex digit.

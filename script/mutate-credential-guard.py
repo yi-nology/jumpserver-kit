@@ -218,6 +218,100 @@ mut("非十六进制的凭据（base64）", MGMT, {
         "secret = \"" + B64 + "\"\n",
 })
 
+# M13 「点文件」：.env.secrets 这类点开头的文件只有靠「点文件一律读」
+# 才会被读进来（.env 单独在名单里，.env.secrets 不在任何名单里）⇒
+# 删掉那条分支，这个变异就仍绿。
+mut("点文件里的凭据（.env.secrets）", MGMT, {
+    ".env.secrets":
+        "JUMPSERVER_TOKEN = \"" + LEAK + "\"\n",
+})
+
+# M14 「事故原形之三的独占形态：单横线默认值」。⚠️ 夹具用 "${VAR-…}"
+# 不用 "${VAR:-…}"：「:-」那个形态键值规则也会偶然命中 ⇒ 删掉默认值
+# 规则它照样红 ⇒ 钉不住。单横线只有默认值规则看得见。
+mut("事故原形：shell 单横线默认值", MGMT, {
+    "script/verify.sh":
+        "JUMPSERVER_TOKEN=\"${JUMPSERVER_TOKEN-" + LEAK + "}\"\n",
+})
+
+# M15 「提到标记的散文不是标记」：文档里讲解豁免标记的那一行不得豁免
+# 任何东西 ⇒ 它下面那行凭据必须仍然红（钉住标记锚定，别退回 Contains）。
+mut("散文提到豁免标记（仍须红）", MGMT, {
+    "docs/marker.md":
+        "the marker is called jms:allow-credential\n"
+        "TOK = \"" + LEAK + "\"\n",
+})
+
+# M16 「Go 短声明」：token := "…" ⇒ 分隔符表少了「:=」这一行就整行看不见。
+# ⚠️ 夹具路径别叫 main.go：mgmt/exec 仓根**真有** main.go ⇒ 会覆盖副本里
+# 的真文件、清理时又删掉它 ⇒ 收尾核对会误报「真仓被改」。
+mut("Go 短声明里的凭据", MGMT, {
+    "mutant/leaked.go":
+        "package main\n\nfunc main() {\n\ttoken := \"" + LEAK + "\"\n\t_ = token\n}\n",
+})
+
+# M17 「URL 内嵌凭据」：db://deploy:<…>@host —— 这个形态没有键名（deploy
+# 是用户名）⇒ 只认键名的规则看不见它。
+mut("URL 内嵌的凭据", MGMT, {
+    "conf/db.py":
+        "dsn = \"db://deploy:" + LEAK + "@db.internal\"\n",
+})
+
+# M18 「没有白名单后缀的私钥文件」：~/.ssh/id_rsa 那一类 —— PEM 头规则
+# 认得出它，但文件得先被读进来（无后缀 + PEM 头嗅探）。
+mut("无后缀文件里的私钥（id_rsa）", MGMT, {
+    "deploy/id_rsa":
+        # jms:allow-credential
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEpAIBAAKCAQEA\n"
+        "-----END RSA PRIVATE KEY-----\n",
+})
+
+# M19 「Go 反引号原始字符串」：const token = `…` ⇒ 值的可选引号类少了
+# 反引号，这一行就看不见。（反引号写成 \x60：本脚本自己不许带它。）
+mut("反引号原始字符串里的凭据", MGMT, {
+    "mutant/leaked.go":
+        "package main\n\nconst token = \x60" + LEAK + "\x60\n",
+})
+
+# M20 「空白分隔」：.netrc 的 machine … password <…> ⇒ 键与值之间只有空格。
+mut(".netrc 里空白分隔的凭据", MGMT, {
+    ".netrc":
+        "machine db.internal login deploy password " + LEAK + "\n",
+})
+
+# M21 「已知名字的变体」：Dockerfile.prod ⇒ 白名单只认精确名与后缀，
+# 变体名要有前缀变体规则才被读进来。
+mut("变体名文件里的凭据（Dockerfile.prod）", MGMT, {
+    "deploy/Dockerfile.prod":
+        "FROM x\nENV JUMPSERVER_TOKEN=" + LEAK + "\n",
+})
+
+# M22 「查询串参数」：?token=<JWT> ⇒ 键值规则看不见 URL（scheme:value
+# 把整条放走），JWT 还带点。⚠️ 第一段刻意短且全小写 ⇒ 键值规则的值
+# 形态（截到第一个点、要 16 位）不认它 ⇒ 只有查询串规则能命中 ⇒
+# 这条钉的就是那条规则。
+JWT = ("eyj" + "." + "abcdefghijklmnopqrstuvwx" + "." +
+       "ABCDEFGHIJKLMNOPQRSTUVWX0123456789abcd")
+mut("查询串里的 JWT", MGMT, {
+    "docs/url.md":
+        "url = \"https://host/api?token=" + JWT + "&a=1\"\n",
+})
+
+# M23 边界（仍然绿）：文档里的 URL —— https://user:password@host 是「讲
+# URL 怎么写」，不是泄漏：password 是个词，不是不透明值。
+mut("边界：文档里的 URL（仍然绿）", MGMT, {
+    "docs/uri.md":
+        "connect with https://user:password@host/db\n",
+}, expect="green")
+
+# M24 「裸标记行不是标记」：文档里「可用标记」清单那一行（标记独占一行、
+# 没有注释前缀）不得豁免下一行 ⇒ 下一行的凭据必须仍然红。
+mut("裸标记行豁免了下一行（仍须红）", MGMT, {
+    "docs/markers.md":
+        "jms:allow-credential\n"
+        "TOK = \"" + LEAK + "\"\n",
+})
 
 def run_one(name, repo, files, expect, verbose):
     """Run one mutation. Returns "red", "green" or "build-failed"."""
