@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,24 +25,39 @@ import (
 // ONE definition (render.ResultText), the catalogue is the registry's own
 // assembly, and the gate+trail sit below every call.
 
+// recs collects the trail records safely: OnRecord fires on the kitex
+// handler goroutine, the test reads from its own — a plain slice races
+// under -race (no happens-before edge through a socket).
+type recs struct {
+	mu  sync.Mutex
+	all []reg.Record
+}
+
+func (r *recs) add(rec reg.Record) { r.mu.Lock(); defer r.mu.Unlock(); r.all = append(r.all, rec) }
+func (r *recs) got() []reg.Record {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]reg.Record(nil), r.all...)
+}
+
 // testRPC brings up the face on a random port and hands back a kitex
 // client aimed at it.
-func testRPC(t *testing.T, records *[]reg.Record) (*Server, execface.Client, *reg.Registry) {
+func testRPC(t *testing.T, records *recs) (*Server, execface.Client, *reg.Registry) {
 	t.Helper()
 	return up(t, records)
 }
 
 // up builds a registry with two tools (a read and a write-needing-confirm
 // one) plus the face, and returns the client aimed at the real port.
-func up(t *testing.T, records *[]reg.Record) (*Server, execface.Client, *reg.Registry) {
+func up(t *testing.T, records *recs) (*Server, execface.Client, *reg.Registry) {
 	t.Helper()
 	r := reg.New(&mcp.Implementation{Name: "rpcapi-test", Version: "1"}, reg.Options{
 		Policy: reg.PolicyTable{
-			"echo":   {Risk: jms.Risk_read},
+			"echo":      {Risk: jms.Risk_read},
 			"danger":    {Risk: jms.Risk_write, Confirm: "set confirm=true to run"},
 			"twoblocks": {Risk: jms.Risk_read},
 		},
-		OnRecord: func(rec reg.Record) { *records = append(*records, rec) },
+		OnRecord: records.add,
 	})
 	reg.Add(r, &mcp.Tool{
 		Name:        "echo",
@@ -86,8 +102,8 @@ type dangerArgs struct {
 }
 
 func TestRPCFaceRefusesWrongToken(t *testing.T) {
-	var recs []reg.Record
-	_, cli, _ := testRPC(t, &recs)
+	var r recs
+	_, cli, _ := testRPC(t, &r)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -97,14 +113,14 @@ func TestRPCFaceRefusesWrongToken(t *testing.T) {
 	if _, err := cli.Catalogue(ctx, "wrong"); err == nil {
 		t.Fatal("the catalogue must demand the token too — no anonymous access")
 	}
-	if len(recs) != 0 {
-		t.Fatalf("auth failures leave no trail line, got %d", len(recs))
+	if len(r.got()) != 0 {
+		t.Fatalf("auth failures leave no trail line, got %d", len(r.got()))
 	}
 }
 
 func TestRPCFaceAnswersUnknownToolWithErrorAnswer(t *testing.T) {
-	var recs []reg.Record
-	_, cli, _ := testRPC(t, &recs)
+	var r recs
+	_, cli, _ := testRPC(t, &r)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -115,14 +131,14 @@ func TestRPCFaceAnswersUnknownToolWithErrorAnswer(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Text, "no such tool") {
 		t.Fatalf("unknown tool answer malformed: %+v", res)
 	}
-	if len(recs) != 0 {
-		t.Fatalf("an unknown tool never reaches a tool; no trail line, got %d", len(recs))
+	if len(r.got()) != 0 {
+		t.Fatalf("an unknown tool never reaches a tool; no trail line, got %d", len(r.got()))
 	}
 }
 
 func TestRPCFaceGoesThroughTheGate(t *testing.T) {
-	var recs []reg.Record
-	_, cli, _ := testRPC(t, &recs)
+	var r recs
+	_, cli, _ := testRPC(t, &r)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	res, err := cli.Invoke(ctx, &jmsrpc.ToolCall{Token: "sekrit", Tool: "danger", Args_: []byte(`{}`)})
@@ -132,17 +148,16 @@ func TestRPCFaceGoesThroughTheGate(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Text, "confirm") {
 		t.Fatalf("the refusal must carry the gate's sentence: %+v", res)
 	}
-	if len(recs) != 1 {
-		t.Fatalf("the trail must have one line for the refusal, got %d", len(recs))
-	}
-	if recs[0].Gate.Call.Caller != RPCCaller {
-		t.Errorf("trail caller = %q, want %q", recs[0].Gate.Call.Caller, RPCCaller)
+	if got := r.got(); len(got) != 1 {
+		t.Fatalf("the trail must have one line for the refusal, got %d", len(got))
+	} else if got[0].Gate.Call.Caller != RPCCaller {
+		t.Errorf("trail caller = %q, want %q", got[0].Gate.Call.Caller, RPCCaller)
 	}
 }
 
 func TestRPCFaceServesTheCatalogue(t *testing.T) {
-	var recs []reg.Record
-	_, cli, r := testRPC(t, &recs)
+	var rc recs
+	_, cli, r := testRPC(t, &rc)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	rows, err := cli.Catalogue(ctx, "sekrit")
@@ -168,8 +183,8 @@ func TestRPCFaceServesTheCatalogue(t *testing.T) {
 }
 
 func TestRPCFaceTextIsTheOneDefinition(t *testing.T) {
-	var recs []reg.Record
-	_, cli, _ := testRPC(t, &recs)
+	var r recs
+	_, cli, _ := testRPC(t, &r)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	res, err := cli.Invoke(ctx, &jmsrpc.ToolCall{Token: "sekrit", Tool: "twoblocks", Args_: []byte(`{}`)})
@@ -187,9 +202,24 @@ func TestRPCFaceTextIsTheOneDefinition(t *testing.T) {
 type twoblocksArgs struct{}
 
 func TestRPCFaceStartStopLeavesPortRebindable(t *testing.T) {
-	var recs []reg.Record
-	s, _, _ := testRPC(t, &recs)
+	var rc recs
+	s, cli, _ := testRPC(t, &rc)
 	a := s.Addr()
+	// The Stop must not race the server's own bootstrap: wait until the
+	// face has answered once (Run completed), then stop.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := cli.Invoke(ctx, &jmsrpc.ToolCall{Token: "sekrit", Tool: "echo", Args_: []byte(`{}`)})
+		cancel()
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the face never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err := s.Stop(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}

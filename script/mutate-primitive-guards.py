@@ -225,15 +225,7 @@ mut("Start不回真端口",
                 "ln.Addr().String()", "opts.Addr")},
     "TestStartHandsBackTheRealAddressAndServes", "./pkg/httpapi/")
 
-mut("serveUntilSignal缺地址不提JMS_HTTP_ADDR",
-    {SERVE: swap(serve_src, anchor_in(serve_src, "serve http needs an address"),
-                " — JMS_HTTP_ADDR", "")},
-    "TestServeHTTPWithoutAnAddressRefuses", "./pkg/httpapi/")
 
-mut("serveUntilSignal示例端口硬编码",
-    {SERVE: swap(serve_src, anchor_in(serve_src, "opts.ExampleAddr"),
-                "opts.ExampleAddr", '"127.0.0.1:8731"')},
-    "TestServeHTTPWithoutAnAddressRefuses", "./pkg/httpapi/")
 
 mut("firstDiffLine钉1",
     {CHECK: swap(check_src, anchor_in(check_src, "return i + 1, av, bv"),

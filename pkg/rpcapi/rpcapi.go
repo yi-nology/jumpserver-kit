@@ -103,12 +103,12 @@ func (s *Server) RunBackground() {
 }
 
 // Stop shuts the face down. kitex's Stop is idempotent, and the listener
-// was adopted by the server, so a defensive Close is a harmless no-op.
+// was adopted by the server — its Close is the authoritative one, so a
+// defensive Close here fails with "use of closed network connection",
+// which IS success, not a second error to report.
 func (s *Server) Stop() error {
 	err := s.svr.Stop()
-	if lerr := s.ln.Close(); err == nil {
-		err = lerr
-	}
+	_ = s.ln.Close()
 	return err
 }
 
