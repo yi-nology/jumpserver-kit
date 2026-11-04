@@ -52,6 +52,14 @@ func kindsOf(hits []arch.CredentialHit) []string {
 	return out
 }
 
+// aBase64Value returns a credential-shaped value that is NOT hex.
+//
+// ⚠️ It is assembled from two halves so that no source file in this
+// repository contains the value itself.
+func aBase64Value() string {
+	return "EMrb0obFo0sJqh6KjNz9WThsO9gh4P1Lrk0" + "/1SgcXno="
+}
+
 func TestScanCredentialsReportsAValueUnderACredentialKey(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "script/publish.py",
@@ -234,5 +242,115 @@ func TestScanCredentialsExemptsOnlyTheMarkedLine(t *testing.T) {
 	}
 	if report.Hits[0].Line != 3 {
 		t.Errorf("the hit is on line %d, want line 3", report.Hits[0].Line)
+	}
+}
+
+// TestScanCredentialsReportsAJSONMember covers the JSON shape.
+//
+// ⚠️ The closing quote of the key sits BETWEEN the key and the colon ⇒ a
+// rule that demands "key immediately followed by :" cannot see it ⇒ the
+// whole JSON shape would be invisible.
+func TestScanCredentialsReportsAJSONMember(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "config.json",
+		"{\"token\": \""+aHexValue()+"\"}")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) != 1 {
+		t.Fatalf("want exactly one hit, got %d: %v", len(report.Hits), kindsOf(report.Hits))
+	}
+	if report.Hits[0].Key != "token" {
+		t.Errorf("the hit names the key %q, want token", report.Hits[0].Key)
+	}
+}
+
+// TestScanCredentialsReportsAPositionalArgument covers the shape the leak
+// actually took in the publish script: the credential was the SECOND
+// argument of a call, with a comma between the key and the value.
+func TestScanCredentialsReportsAPositionalArgument(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "script/publish.py",
+		"    env.setdefault(\"JUMPSERVER_TOKEN\", \""+aHexValue()+"\")")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) != 1 {
+		t.Fatalf("want exactly one hit, got %d: %v", len(report.Hits), kindsOf(report.Hits))
+	}
+	if report.Hits[0].Key != "JUMPSERVER_TOKEN" {
+		t.Errorf("the hit names the key %q, want JUMPSERVER_TOKEN", report.Hits[0].Key)
+	}
+}
+
+// TestScanCredentialsReportsAShellDefaultValue covers the shape the leak
+// took in the shell script: the credential sat behind a ":-" default.
+func TestScanCredentialsReportsAShellDefaultValue(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "script/verify.sh",
+		"JUMPSERVER_TOKEN=\"$JUMPSERVER_TOKEN:-"+aHexValue()+"}\"\n")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) == 0 {
+		t.Fatalf("a shell default value is still a credential in the clear")
+	}
+}
+
+// TestScanCredentialsReportsAnAbbreviatedKey covers the shape the leak
+// took in the end-to-end test: the key was "TOK", an abbreviation the
+// shared word list does not know.
+func TestScanCredentialsReportsAnAbbreviatedKey(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "e2e_test.py",
+		"TOK = \""+aHexValue()+"\"\n")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) != 1 {
+		t.Fatalf("want exactly one hit, got %d: %v", len(report.Hits), kindsOf(report.Hits))
+	}
+	if report.Hits[0].Key != "TOK" {
+		t.Errorf("the hit names the key %q, want TOK", report.Hits[0].Key)
+	}
+}
+
+// TestScanCredentialsReportsANonHexCredential covers the credentials that
+// are not hex at all: a base64 secret, a GitHub PAT, an AWS secret.
+func TestScanCredentialsReportsANonHexCredential(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "script/deploy.py",
+		"secret = \""+aBase64Value()+"\"\n")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) != 1 {
+		t.Fatalf("want exactly one hit, got %d: %v", len(report.Hits), kindsOf(report.Hits))
+	}
+}
+
+// TestScanCredentialsIgnoresAProseValue covers the other side of the
+// widened value shape: a long word is not a secret.
+func TestScanCredentialsIgnoresAProseValue(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "config.yaml",
+		"token: my-very-long-service-name\n")
+
+	report, err := arch.ScanCredentials(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(report.Hits) != 0 {
+		t.Fatalf("a name is not a credential, got %d: %v", len(report.Hits), kindsOf(report.Hits))
 	}
 }

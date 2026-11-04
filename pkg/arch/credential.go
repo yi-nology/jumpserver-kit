@@ -14,9 +14,9 @@ package arch
 // ⇒ The guard reads the working tree and looks for credential-SHAPED
 // values sitting in credential CONTEXTS. Both halves matter:
 //
-//   - the SHAPE (a long hex string, a PEM private key block, an
-//     Authorization header carrying a value) says "this could be a
-//     secret";
+//   - the SHAPE (a long hex string, an opaque base64 blob, a PEM private
+//     key block, an Authorization header carrying a value) says "this
+//     could be a secret";
 //   - the CONTEXT (a key whose name says the value is a credential) says
 //     "it was meant to be one".
 //
@@ -25,10 +25,10 @@ package arch
 // of a bastion PrivateToken. Context alone condemns every long hash
 // written under a key named "digest".
 //
-// ⚠️ The word list is NOT written here: it is redact.IsCredentialKey, the
-// same list the audit trail and the answer path use. A second list would
-// drift, and the drift would decide which credentials this guard is able
-// to see at all.
+// ⚠️ The word list is mostly NOT written here: it is
+// redact.IsCredentialKey, the same list the audit trail and the answer
+// path use. A second list would drift, and the drift would decide which
+// credentials this guard is able to see at all.
 //
 // ⚠️ What it does NOT catch, on purpose: a credential assembled at run
 // time ("tok" + "en") or pasted as an image. A static read of the tree
@@ -100,15 +100,47 @@ type CredentialReport struct {
 // ⚠️ It exempts the line it is ON and the line right after it (a marker
 // on the line above a long literal is the usual way to write it).
 //
-// ⚠️ Every exemption is ACCOUNTED FOR: the guard logs the lines it
+// ⚠️ Every exemption is ACCOUNTED FOR: the guard prints the lines it
 // exempted, so a reviewer sees them instead of having to go looking.
 const allowMarker = "jms:allow-credential"
 
-// The rules. Each one is a SHAPE; the context is applied afterwards.
+// incidentKeys are key names that the shared word list does not know but
+// that this repository's own history leaked under.
+//
+// ⚠️ They are NOT added to pkg/redact's list, on purpose: that list
+// decides what the audit trail stops recording and what the answer path
+// masks ⇒ adding a word there changes the behaviour of two other paths,
+// and that is a different decision than this guard.
+//
+// ⚠️ "tok" is here because the leak that motivated this guard was written
+// as TOK = "…" ⇒ a word list that does not know the abbreviation does not
+// see the accident. "auth" and "credentials" are here because they are
+// ordinary names for a credential that the suffix rule misses (the shared
+// list knows "credential", not "credentials").
+//
+// ⚠️ They are matched EXACTLY, not as a suffix: as a suffix, "auth"
+// would also claim "oauth", and a false claim is a false alarm.
+var incidentKeys = map[string]bool{
+	"tok":         true,
+	"auth":        true,
+	"credentials": true,
+}
+
+// The rules.
 //
 // ⚠️ The PEM rule comes first because it is the one case where the shape
 // is unambiguous on its own: a private key block is never a commit SHA
 // and never a placeholder.
+//
+// ⚠️ The three key/value rules cover the THREE ways a credential turns up
+// in a script or a config — and they are three because the leak this
+// guard answers to lived in all three:
+//
+//	TOK = "…"                                  (assignment)
+//	env.setdefault("JUMPSERVER_TOKEN", "…")    (positional argument)
+//	JUMPSERVER_TOKEN="$JUMPSERVER_TOKEN:-…}" (shell default value)
+//
+// A rule that only knew the first one would have missed the accident.
 var (
 	// privateKeyBlockRE matches the header of a PEM private key.
 	privateKeyBlockRE = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)
@@ -120,29 +152,54 @@ var (
 	// alphabet run of sixteen characters or more) because the scheme
 	// decides the encoding: "Token" carries hex, "Basic" and "Bearer"
 	// carry base64. A hex-only rule would miss both of those.
-	authHeaderRE = regexp.MustCompile(`(?i)authorization\s*[:=]\s*["']?(token|bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})`)
+	authHeaderRE = regexp.MustCompile(`(?i)authorization"?\s*[:=]\s*["']?(token|bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})`)
 
-	// credentialKeyRE matches a key and the value that belongs to it.
+	// keyValueRE matches a key and the value that belongs to it.
 	//
-	// ⚠️ The key character class excludes the quote, so a JSON key
-	// ("token") is captured without its quotes and without the quote of
-	// the value.
-	credentialKeyRE = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.-]*)\s*[:=]\s*["']?([0-9a-fA-F]{32,})["']?`)
+	// ⚠️ The closing quote of the key is OPTIONAL and sits AFTER the key:
+	// a JSON member is "token": "…" ⇒ the quote is between the key and
+	// the colon ⇒ without the optional quote the whole JSON shape is
+	// invisible.
+	//
+	// ⚠️ The value shape here is deliberately WIDE (any token-ish run of
+	// sixteen characters or more): the real question — "is this value
+	// credential-shaped?" — is asked afterwards by
+	// isCredentialShapedValue, which knows the difference between a
+	// secret and a sentence.
+	keyValueRE = regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_.-]*)"?\s*[:=]\s*["']?([A-Za-z0-9+/=_-]{16,})["']?`)
+
+	// positionalRE matches a credential passed as a POSITIONAL argument:
+	// env.setdefault("JUMPSERVER_TOKEN", "…").
+	//
+	// ⚠️ This shape has no colon and no equals sign between the key and
+	// the value ⇒ the key/value rule cannot see it.
+	positionalRE = regexp.MustCompile(`(?i)["']([A-Za-z_][A-Za-z0-9_.-]*)["']\s*,\s*["']([A-Za-z0-9+/=_-]{16,})["']`)
+
+	// defaultValueRE matches a shell default value:
+	// JUMPSERVER_TOKEN="$JUMPSERVER_TOKEN:-…}".
+	//
+	// ⚠️ The value sits behind a ":-" (or "-", ":=", "=") inside the
+	// braces ⇒ neither the key/value rule nor the positional rule can
+	// reach it.
+	defaultValueRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_.-]*)(?::-|-|:=|=)([A-Za-z0-9+/=_-]{16,})\}`)
 )
 
-// The minimum and maximum length of a hex value that counts as
-// credential-shaped.
+// The lengths that decide whether a value is credential-shaped.
 //
-// ⚠️ Thirty-two is the floor: it is below every credential this
+// ⚠️ Thirty-two is the floor for hex: it is below every credential this
 // repository has ever handled (a bastion PrivateToken is forty) and above
 // the length at which a hash stops being plausible as a secret.
 //
-// ⚠️ Sixty-four is the ceiling: a sha256 digest is sixty-four hex
+// ⚠️ Sixty-four is the ceiling for hex: a sha256 digest is sixty-four hex
 // characters, and a credential is not a digest. Without the ceiling a
 // checksum table would be read as a credential.
+//
+// ⚠️ Twenty-four is the floor for the base64 shape: below it, a blob is
+// more likely to be a word or a short identifier than a key.
 const (
-	minHexLength = 32
-	maxHexLength = 64
+	minHexLength    = 32
+	maxHexLength    = 64
+	minBase64Length = 24
 )
 
 // textExtensions are the file suffixes that are read as text.
@@ -164,6 +221,10 @@ var textExtensions = map[string]bool{
 	// found innocent.
 	".pem": true, ".key": true, ".crt": true, ".cer": true, ".p12": true,
 	".pfx": true,
+	// The environment files that live behind a dot and a second word
+	// (".env.local", ".env.production") are the MOST common place for a
+	// credential to sit in a tree ⇒ they are read too.
+	".local": true, ".production": true, ".development": true, ".staging": true,
 }
 
 // textNames are the file names that carry text but have no suffix (or a
@@ -239,8 +300,10 @@ func isTextFile(path string) bool {
 	if textNames[lower] {
 		return true
 	}
-	// ".env" and friends have no suffix but do have a dot.
-	if strings.HasPrefix(lower, ".") && !strings.Contains(lower[1:], ".") {
+	// A DOTFILE is read whatever comes after the dot: ".env", ".env.local",
+	// ".npmrc.local" ⇒ they are all configuration, and configuration is
+	// where a credential sits.
+	if strings.HasPrefix(lower, ".") {
 		return true
 	}
 	return textExtensions[strings.ToLower(filepath.Ext(base))]
@@ -280,24 +343,123 @@ func scanText(rel, text string) ([]CredentialHit, []string) {
 			})
 		}
 
-		for _, m := range credentialKeyRE.FindAllStringSubmatch(line, -1) {
-			key, value := m[1], m[2]
-			if !redact.IsCredentialKey(key) {
-				continue
+		for _, rule := range []struct {
+			rx   *regexp.Regexp
+			kind string
+		}{
+			{keyValueRE, "a credential-shaped value under a credential key"},
+			{positionalRE, "a credential-shaped value passed under a credential key"},
+			{defaultValueRE, "a credential-shaped value used as a default"},
+		} {
+			for _, m := range rule.rx.FindAllStringSubmatch(line, -1) {
+				key, value := m[1], m[2]
+				if !isCredentialKeyName(key) {
+					continue
+				}
+				if !isCredentialShapedValue(value) {
+					continue
+				}
+				hits = append(hits, CredentialHit{
+					File: rel, Line: ln, Kind: rule.kind,
+					Key: key,
+				})
 			}
-			if len(value) < minHexLength || len(value) > maxHexLength {
-				continue
-			}
-			if isPlaceholderValue(value) {
-				continue
-			}
-			hits = append(hits, CredentialHit{
-				File: rel, Line: ln, Kind: "a credential-shaped value under a credential key",
-				Key: key,
-			})
 		}
 	}
 	return hits, allowances
+}
+
+// isCredentialKeyName says whether a key names a credential.
+//
+// ⚠️ Two sources, and the difference matters: the shared word list (the
+// one the audit trail and the answer path use) knows the ordinary names;
+// the incident list knows the abbreviation this repository's own history
+// leaked under. ⚠️ The incident list is matched EXACTLY — as a suffix it
+// would claim innocent names.
+func isCredentialKeyName(key string) bool {
+	if redact.IsCredentialKey(key) {
+		return true
+	}
+	return incidentKeys[strings.ToLower(key)]
+}
+
+// isCredentialShapedValue says whether a value looks like a secret.
+//
+// ⚠️ Two shapes, because credentials come in two shapes:
+//
+//   - HEX: a bastion PrivateToken, a GitHub token, an AWS key id —
+//     thirty-two to sixty-four hex characters;
+//   - BASE64: a base64 secret, a GitHub PAT with a prefix, a JWT —
+//     twenty-four characters or more, and OPAQUE.
+//
+// ⚠️ "Opaque" is what keeps prose out: "my-very-long-service-name" is
+// twenty-seven base64-shaped characters, but it is all lowercase letters
+// and a dash ⇒ it is a name, not a secret. A secret has digits, or a mix
+// of cases, in it.
+func isCredentialShapedValue(v string) bool {
+	if v == "" {
+		return false
+	}
+	if len(v) >= minHexLength && len(v) <= maxHexLength && isHexString(v) {
+		return !isPlaceholderValue(v)
+	}
+	if len(v) >= minBase64Length && isBase64ish(v) && looksOpaque(v) {
+		return true
+	}
+	return false
+}
+
+// isHexString says whether every character is a hex digit.
+func isHexString(v string) bool {
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isBase64ish says whether every character belongs to the base64 /
+// base64url alphabets.
+func isBase64ish(v string) bool {
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r == '+' || r == '/' || r == '=' || r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// looksOpaque says whether a base64-shaped string looks random rather
+// than like a name or a sentence.
+//
+// ⚠️ A name is letters and separators; a secret has entropy in it ⇒ the
+// test is "does it carry a digit, or a mix of cases?".
+func looksOpaque(v string) bool {
+	var digit, upper, lower bool
+	for _, r := range v {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case r >= 'A' && r <= 'Z':
+			upper = true
+		case r >= 'a' && r <= 'z':
+			lower = true
+		}
+	}
+	if digit {
+		return true
+	}
+	return upper && lower
 }
 
 // isPlaceholderValue says whether a hex value is obviously a filler
@@ -333,25 +495,22 @@ func CheckNoPlaintextCredentials(t *testing.T, root string) {
 	if err != nil {
 		t.Fatalf("scan %s for plaintext credentials: %v", root, err)
 	}
-	// ⚠️ The exemptions go to STDERR, not to t.Logf: "go test" prints the
-	// log of a PASSING test only under -v ⇒ an exemption recorded in a log
-	// line would be invisible in a CI run without -v ⇒ the accounting would
-	// be bookkeeping that nobody ever sees, and a marker nobody sees is a
-	// marker that grows.
-	if len(report.Allowances) > 0 {
-		fmt.Fprintf(os.Stderr, "credential scan: %d exempted line(s) under %s:\n",
-			len(report.Allowances), root)
-		for _, a := range report.Allowances {
-			fmt.Fprintf(os.Stderr, "  %s (about credentials, not one)\n", a)
-		}
-	}
 	for _, h := range report.Hits {
 		t.Errorf("%s: a credential is in the clear — %s. "+
 			"Credentials do not belong in this repository: a commit publishes them, "+
 			"and a published credential has to be rotated, not just deleted. "+
 			"Read it from the environment (the scripts already do that) and rotate "+
 			"the credential that was exposed. If this line is about credentials "+
-			"rather than one, mark it with %s — the exemption is reported above.",
+			"rather than one, mark it with %s — the exemption is printed below.",
 			h.String(), h.Kind, allowMarker)
+	}
+	// ⚠️ The exemptions are PRINTED, not logged: "go test" drops the log of
+	// a PASSING test unless it runs with -v ⇒ an exemption recorded only
+	// in a log line is bookkeeping nobody ever sees. ⚠️ They are still
+	// dropped without -v (the stdout of a passing package is buffered and
+	// discarded) ⇒ **the three repositories' CI runs "go test -v"** ⇒ there
+	// the list is visible; locally, add -v to see it.
+	for _, a := range report.Allowances {
+		fmt.Printf("credential scan: %s was exempted (it is about credentials, not one)\n", a)
 	}
 }

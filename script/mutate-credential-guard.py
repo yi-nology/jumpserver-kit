@@ -71,6 +71,10 @@ GUARD = "TestThePlaintextCredentialsAreNotInTheRepository"
 # to treat it as one.
 LEAK = "a1b2c3d4" * 5
 
+# A credential-shaped value that is NOT hex (base64), assembled so that this
+# script holds no such literal of its own.
+B64 = "EMrb0obFo0sJqh6KjNz9WThsO9gh4P1Lrk0" + "/1SgcXno="
+
 
 def repo_by_name(name):
     """按仓名找到**副本**里那个仓。
@@ -163,19 +167,55 @@ mut("边界：一枚 commit SHA（仍然绿）", MGMT, {
         "  build:\n"
         "    steps:\n"
         "      - uses: actions/checkout@" + LEAK + " # v7\n",
-})
+}, expect="green")
 
 # M6 边界（仍然绿）：键名不是凭据 ⇒ 值再长也不是凭据。
 mut("边界：非凭据键下的长摘要（仍然绿）", MGMT, {
     "docs/digest.md":
         "digest: " + LEAK + "\n",
-})
+}, expect="green")
 
 # M7 边界（仍然绿）：**文件里没有**那个值，就不是这个守卫的事 —— 值是运行
 # 时拼起来的，静态读树看不见它。
 mut("边界：值是运行时拼起来的（仍然绿）", MGMT, {
     "script/assembled.py":
         "value = \"" + LEAK[:20] + "\" + \"" + LEAK[20:] + "\"\n",
+}, expect="green")
+
+# M8 「事故原形之一：缩写键名」。真实泄漏在 e2e 测试里写的是 TOK = "…" ⇒
+# 共享词表不认识这个缩写 ⇒ 只认共享词表的守卫会**看不见事故本身**。
+mut("事故原形：缩写键名 TOK", MGMT, {
+    "e2e_test.py":
+        "TOK = \"" + LEAK + "\"\n",
+})
+
+# M9 「事故原形之二：位置参数」。真实泄漏在发布脚本里是
+# env.setdefault("JUMPSERVER_TOKEN", "…") ⇒ 键与值之间是**逗号**，不是
+# 冒号或等号 ⇒ 只认「键=值」的守卫会看不见它。
+mut("事故原形：位置参数", MGMT, {
+    "script/publish.py":
+        "    env.setdefault(\"JUMPSERVER_TOKEN\", \"" + LEAK + "\")\n",
+})
+
+# M10 「事故原形之三：shell 默认值」。真实泄漏在 shell 脚本里是
+# JUMPSERVER_TOKEN="$JUMPSERVER_TOKEN:-…}" ⇒ 值躲在花括号与 ":-" 后面。
+mut("事故原形：shell 默认值", MGMT, {
+    "script/verify.sh":
+        "JUMPSERVER_TOKEN=\"$JUMPSERVER_TOKEN:-" + LEAK + "}\"\n",
+})
+
+# M11 「JSON 成员」：JSON 里键与冒号之间隔着一个闭引号 ⇒ 不容忍它的
+# 规则看不见整个 JSON 形态。
+mut("JSON 成员里的凭据", MGMT, {
+    "config.json":
+        "{\"token\": \"" + LEAK + "\"}\n",
+})
+
+# M12 「不是十六进制的凭据」：base64 形态的密钥（GitHub PAT / AWS secret
+# 那一类）不是十六进制 ⇒ 只认 hex 的规则看不见它们。
+mut("非十六进制的凭据（base64）", MGMT, {
+    "script/deploy.py":
+        "secret = \"" + B64 + "\"\n",
 })
 
 
