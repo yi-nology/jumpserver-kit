@@ -11,6 +11,37 @@
 
 ### 修复
 
+## [0.5.0] - 2026-11-05
+
+### 新增
+
+- **`pkg/rpcapi` —— 注册表的第三张脸（kitex）**：`New` 同步 bind（端口冲突当场失败），
+  `RunBackground`（stdio ride）与 `Svr()`（组合根 `oekit/kitex.RunServer`）双生命周期
+  入口；token 逐调用、每方法、常量时间校验，**无匿名访问**（Catalogue 同验）；Invoke
+  走 `reg.CallTool` 同一扇门——门禁拒绝 / unknown tool / 入参不合 schema 是
+  **is_error 答案**，token 错是**传输错误**（与 REST 401 同位，无留痕行）；caller=`rpc`
+  （自报姓名经 `/` 附加）；text=`render.ResultText` 唯一定义；目录行= `reg.Catalogue()`
+  唯一装配。
+- **`pkg/faces` —— 唯一生命周期主人**：serve 子命令变成数据（`''`/`http`/`rpc`/`all`）。
+  `plan()` 纯函数钉住 dispatch 矩阵；stdio 模式保持现网形状 + RPC ride（bind 失败按
+  启动失败处理，不留静默降级）；常驻模式组合在 `oekit/bootstrap` 上（信号、逐资源
+  关闭预算），kitex 面交 `oekit/kitex.RunServer`；调用方 ctx 可干净停机。
+  `httpapi.Run/serveUntilSignal` **搬**入 faces（不是拷贝）；`httpapi` 保留
+  `Start/ServeOptions/Handler/OpenAPI`。
+- **RPC 契约**：`idl/jmsrpc/jmsrpc.thrift`（`ToolCall{tool,args,token,caller}` →
+  `InvokeResult{is_error,text,structured}` + `Catalogue(token)`——无匿名目录）→
+  `kitex_gen/jmsrpc`（kitex 工具生成，**入库**，`script/gen-rpc.sh`）。工具契约唯一源
+  仍是 MCP schema，RPC 面不出现第三份入参形状。
+- **守卫与变异**：`script/mutate-rpc-face.py` **6 条变异全红**（rpc: token 校验旁路 /
+  unknown 放行 / text 脱离唯一定义；faces: all 无面仍服务 / 提示丢 JMS_HTTP_ADDR /
+  示例端口硬编码）；serve 生命周期的 2 条变异自 `mutate-primitive-guards.py` 迁入
+  （彼处计 13→11）。
+
+### 变更
+
+- **底座依赖**：+ `cloudwego/kitex v0.16.4`、`oekit/kitex v0.7.6`、`oekit/bootstrap v0.6.8`。
+- `CheckBaseSharedByBoth` 现在也守 `pkg/rpcapi` 与 `pkg/faces`（两服务都接线后即绿）。
+
 ## [0.4.0] - 2026-11-04
 
 ### 变更

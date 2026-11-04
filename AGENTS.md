@@ -18,7 +18,7 @@
 |---|---|---|---|
 | [`yi-nology/jumpserver-mgmt`](https://github.com/yi-nology/jumpserver-mgmt) | MCP server `jumpserver` | **管理面** — 改堡垒机自己的配置：资产/账号/权限/标签/命令过滤/用户 | 97 |
 | [`yi-nology/jumpserver-exec`](https://github.com/yi-nology/jumpserver-exec) | MCP server `jumpserver-exec` | **执行面** — 经堡垒机在**受管机器**上跑命令、传文件 | 15 |
-| **`yi-nology/jumpserver-kit`（本仓）** | 共用底座（**库**） | 两个服务**共用**的东西：协议层（`pkg/jmsapi`）、门禁（`pkg/reg`）、结果整形与输出契约（`pkg/render`）、留痕（`pkg/audit`）、脱敏（`pkg/redact`）、风险分类（`pkg/risk`）、失败分类（`pkg/errs`）、契约守卫的机械（`pkg/contractscan`）、架构守卫的机械（`pkg/arch`）、共用词汇（`model/jms`） | — |
+| **`yi-nology/jumpserver-kit`（本仓）** | 共用底座（**库**） | 两个服务**共用**的东西：协议层（`pkg/jmsapi`）、门禁（`pkg/reg`）、结果整形与输出契约（`pkg/render`）、留痕（`pkg/audit`）、脱敏（`pkg/redact`）、风险分类（`pkg/risk`）、失败分类（`pkg/errs`）、契约守卫的机械（`pkg/contractscan`）、架构守卫的机械（`pkg/arch`）、共用词汇（`model/jms`）、**RPC 面**（`pkg/rpcapi` + `idl/jmsrpc` + `kitex_gen/jmsrpc`）、**serve 生命周期**（`pkg/faces`） | — |
 
 **依赖方向是单向的**：两个服务仓 `require github.com/yi-nology/jumpserver-kit`，
 本仓**不 require** 任何一个服务。
