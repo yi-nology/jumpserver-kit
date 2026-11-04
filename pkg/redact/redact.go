@@ -25,14 +25,6 @@ func Text(s string) string {
 	return logredact.Redact(s)
 }
 
-// Secrets scrubs the given secret values out of a string.
-//
-// Used for credentials the process holds itself (the bastion token, a
-// delegation secret): those are not shapes logredact can recognise.
-func Secrets(s string, secrets ...string) string {
-	return logredact.RedactSecrets(s, secrets...)
-}
-
 // payloadFields are the argument fields that carry a PAYLOAD rather than a
 // description.
 //

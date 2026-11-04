@@ -329,19 +329,6 @@ func Truncate(s string, n int) string {
 	return textx.Trunc(strings.TrimSpace(s), n, "...")
 }
 
-// ToMap round-trips a value through JSON into a map.
-func ToMap(v any) (map[string]any, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
 var tagRe = regexp.MustCompile(`<[^>]*>`)
 
 // HTMLToText strips tags and collapses whitespace, which is all a report

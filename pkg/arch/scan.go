@@ -20,7 +20,6 @@
 package arch
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -216,23 +215,4 @@ func Relative(root, path string) string {
 // IsImportOf reports whether an import path belongs to the given module.
 func IsImportOf(importPath, modulePath string) bool {
 	return importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/")
-}
-
-// ASTFiles parses the given files and returns their syntax trees.
-//
-// It is the shared way to look INSIDE a file: the guards have to read what
-// the code says, not what a comment claims it says (this repository has
-// been bitten by a comment that asserted something the measurement
-// contradicted).
-func ASTFiles(paths []string) (map[string]*ast.File, error) {
-	out := map[string]*ast.File{}
-	fset := token.NewFileSet()
-	for _, p := range paths {
-		f, err := parser.ParseFile(fset, p, nil, parser.ParseComments)
-		if err != nil {
-			return nil, err
-		}
-		out[p] = f
-	}
-	return out, nil
 }
