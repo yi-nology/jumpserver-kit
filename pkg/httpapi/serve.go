@@ -1,12 +1,11 @@
-// This file is the serve lifecycle both services share: which face runs,
-// what happens to the socket, and how the process winds down.
+// This file holds the HTTP face's server pieces the faces lifecycle
+// composes on: Start (bind + serve in the background + the news line)
+// and ServeOptions (the address, the auth, the news writer).
 //
-// ⚠️ It is the ONE place the lifecycle lives. Both services used to carry
-// their own copy of startHTTP / serveHTTP -- same listen, same background
-// serve, same 5-second graceful shutdown, two copies to keep in step, and
-// they had already drifted in their log wording. The service keeps only
-// what is genuinely its own: the configuration, the client, the registry,
-// and the trail wiring.
+// ⚠️ The lifecycle itself — which face(s) run, signals, the shutdown
+// budget, the subcommand dispatch — lives in pkg/faces now. It moved
+// here from the services (two copies had drifted), then out again when
+// the RPC face arrived: one owner, three faces.
 package httpapi
 
 import (
@@ -45,38 +44,6 @@ type ServeOptions struct {
 	// hard-coded either pointed operators of the other plane at the wrong
 	// face. Empty omits the example.
 	ExampleAddr string
-}
-
-// Run is the serve subcommand's whole lifecycle, minus the service's own
-// wiring:
-//
-//   - `serve` (no args) runs MCP over stdio until the transport closes.
-//     When Addr is set, the HTTP face rides along on the SAME registry --
-//     one process, one gate, one trail -- and the socket goes away with
-//     the session that owns the process.
-//   - `serve http` runs the HTTP face until SIGINT/SIGTERM, then shuts
-//     down gracefully. This is the "deployed as a service" shape.
-//
-// It returns nil on a clean stop; the caller maps errors to its own exit
-// code and log prefix.
-func Run(ctx context.Context, r *reg.Registry, opts ServeOptions, args []string) error {
-	if opts.Stderr == nil {
-		opts.Stderr = io.Discard
-	}
-	if len(args) > 0 && args[0] == "http" {
-		return serveUntilSignal(ctx, r, opts)
-	}
-	if opts.Addr != "" {
-		srv, _, err := Start(r, opts)
-		if err != nil {
-			return err
-		}
-		defer srv.Close()
-	}
-	if err := r.Serve(ctx); err != nil {
-		return fmt.Errorf("serve: %w", err)
-	}
-	return nil
 }
 
 // Start brings the HTTP face up on opts.Addr and returns the server,

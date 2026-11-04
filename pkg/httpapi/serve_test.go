@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -33,23 +32,4 @@ func TestStartHandsBackTheRealAddressAndServes(t *testing.T) {
 		t.Fatalf("服务起来了但没人应答：%v", err)
 	}
 	resp.Body.Close()
-}
-
-func TestServeHTTPWithoutAnAddressRefuses(t *testing.T) {
-	var records []reg.Record
-	_, r := testServer(t, &records)
-	err := Run(context.Background(), r, ServeOptions{Stderr: io.Discard}, []string{"http"})
-	if err == nil || !strings.Contains(err.Error(), "JMS_HTTP_ADDR") {
-		t.Fatalf("serve http 不给地址就该拒，并说清 JMS_HTTP_ADDR；拿到：%v", err)
-	}
-	// The EXAMPLE address is the service's own documented port, passed in:
-	// shared code that hard-coded one plane's port (8731) pointed
-	// operators of the other plane (which documents 8732) at the wrong
-	// face — the two probes on one machine would then fight over the
-	// port, or worse, talk to the other plane's HTTP face.
-	err = Run(context.Background(), r,
-		ServeOptions{Stderr: io.Discard, ExampleAddr: "127.0.0.1:8732"}, []string{"http"})
-	if err == nil || !strings.Contains(err.Error(), "127.0.0.1:8732") {
-		t.Fatalf("缺地址的提示该带上服务自己的示例端口（ExampleAddr）；拿到：%v", err)
-	}
 }
