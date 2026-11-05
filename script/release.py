@@ -354,7 +354,7 @@ def pre_push_checks(repo, which):
     if "--no-doctor" not in sys.argv:
         step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
         import subprocess as sp
-        p = sp.run([binary, "--doctor"], cwd=repo, capture=False,
+        p = sp.run([binary, "--doctor"], cwd=repo,
                    env={**os.environ, **entry.get("env", {})})
         if p.returncode != 0 and not DRY:
             raise SystemExit(f"❌ --doctor 退出码 {p.returncode}，链停住（tag 还在本地，可撤）。")
