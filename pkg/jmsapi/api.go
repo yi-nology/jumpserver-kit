@@ -224,6 +224,16 @@ func (c *Client) ListSub(ctx context.Context, res Resource, id, sub string) ([]m
 	return c.ListAll(ctx, string(res)+id+"/"+sub+"/")
 }
 
+// ListSubQuery reads the rows of a sub-resource a query selects — the
+// resources a label binds (its resource-types/<n>/resources view carries
+// ?bound=1), the executions of an automation narrowed by status.
+//
+// It is ListSub for a view the server selects: the caller names the
+// resource and the filter, not the path with a query concatenated onto it.
+func (c *Client) ListSubQuery(ctx context.Context, res Resource, id, sub string, q url.Values) ([]map[string]any, error) {
+	return c.ListAllQuery(ctx, string(res)+id+"/"+sub+"/", q)
+}
+
 // ListInto reads every row of a collection into the caller's slice.
 //
 // It is List for a caller that already has the destination — a test that
