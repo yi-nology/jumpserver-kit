@@ -34,6 +34,10 @@ func TestAWrappedDestructiveCommandIsStillDangerous(t *testing.T) {
 		"eval \"rm -rf /x\"",
 		"sudo -n systemctl reboot",
 		"sudo -n mkfs.ext4 /dev/sda1",
+		// Measured gaps closed 2026-11-06 (probe against Classify):
+		"git push --force-with-lease origin main",
+		"cat disk.img > /dev/sda",
+		"./write.sh > /dev/mmcblk0",
 	}
 	for _, c := range dangerous {
 		if got := Classify(c); got.String() != "DANGEROUS" {
@@ -59,6 +63,14 @@ func TestWrappersAroundHarmlessCommandsStayCalm(t *testing.T) {
 		"echo hi | grep x":                 "READ",
 		"env FOO=1 systemctl status nginx": "READ",
 		"sudo -u root ls -la /var":         "MODIFY",
+		// A dry run deletes nothing: over-asking on it taught the agent the
+		// flag was meaningless (measured 2026-11-06).
+		"kubectl delete --dry-run=client pod web-1": "MODIFY",
+		// The everyday discards stay out of DANGEROUS — bashguard still
+		// counts a redirect as a write (MODIFY), but the /dev/null and
+		// /dev/zero exclusions keep them off the destructive list.
+		"echo hi > /dev/null 2>&1":               "MODIFY",
+		"cat /dev/zero | head -c 10 > /dev/null": "MODIFY",
 	}
 	for c, want := range calm {
 		if got := Classify(c); got.String() != want {

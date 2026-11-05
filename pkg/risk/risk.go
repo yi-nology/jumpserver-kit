@@ -148,8 +148,52 @@ func classify(cmd string, depth int) jms.CommandClass {
 			return jms.CommandClass_DANGEROUS
 		}
 	}
+	// A redirect into a device file is the same write as `dd of=/dev/sda`,
+	// which the table catches — `cat img > /dev/sda` sailed past it until
+	// the walk looked at Stmt.Redirects (measured 2026-11-06).
+	if dangerousRedirect(cmd) {
+		return jms.CommandClass_DANGEROUS
+	}
 	// It writes something, but nothing we know how to call irreversible.
 	return jms.CommandClass_MODIFY
+}
+
+// dangerousRedirect reports whether the command aims an output redirect at
+// a device file.
+//
+// `cat disk.img > /dev/sda` writes the boot disk exactly like `dd
+// of=/dev/sda` — the table catches the dd spelling; the redirect spelling
+// only shows up on the statement's Redirects, which Invocations never
+// carried. /dev/null is excluded: discarding output is the everyday case,
+// and /dev/zero discards writes the same way.
+func dangerousRedirect(cmd string) bool {
+	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return false
+	}
+	found := false
+	syntax.Walk(f, func(n syntax.Node) bool {
+		st, ok := n.(*syntax.Stmt)
+		if !ok {
+			return true
+		}
+		for _, r := range st.Redirs {
+			if !strings.Contains(r.Op.String(), ">") {
+				continue // an input redirect reads; only writes count
+			}
+			target, lit := wordLiteral(r.Word)
+			if !lit {
+				continue // a dynamic target ($DEV) says nothing about where
+			}
+			if strings.HasPrefix(target, "/dev/") &&
+				target != "/dev/null" && target != "/dev/zero" {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
 }
 
 // allCalls parses cmd with the real shell grammar and returns every simple
@@ -437,6 +481,14 @@ func destructive(inv bashguard.Invocation) bool {
 		// Vacuuming the journal deletes the audit trail.
 		return hasFlag(args, "--vacuum-size", "--vacuum-time", "--vacuum-files", "--rotate", "--flush")
 	case name == "kubectl":
+		// A dry run deletes nothing — asking for a confirmation on it
+		// teaches the agent that the flag is meaningless (measured
+		// 2026-11-06: `--dry-run=client` classified DANGEROUS).
+		for _, a := range args {
+			if a == "--dry-run" || strings.HasPrefix(a, "--dry-run=") {
+				return false
+			}
+		}
 		return slicex.Contains(args, "delete")
 	case name == "docker", name == "podman":
 		for i, a := range args {
@@ -463,8 +515,11 @@ func destructiveGit(args []string) bool {
 			// git reset --hard
 			return hasFlag(args, "--hard")
 		case "push":
-			// git push --force
-			return hasFlag(args, "-f", "--force")
+			// git push --force — and --force-with-lease, which overwrites
+			// the remote the same way when the lease passes (it exists to
+			// be run where --force would be; measured 2026-11-06:
+			// --force-with-lease classified MODIFY, a silent bypass).
+			return hasFlag(args, "-f", "--force", "--force-with-lease", "--force-if-includes")
 		case "filter-branch":
 			return true
 		}

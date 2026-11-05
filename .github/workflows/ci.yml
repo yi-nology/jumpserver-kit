@@ -131,6 +131,28 @@ jobs:
           path: kit
           persist-credentials: false
 
+      # ⚠️ 变异验证 15 分钟起步，但守卫没变时结果不可能变。只在动到守卫
+      #   相关路径时跑；tag 全量跑（发版即全量验证一次）。判断不出来的
+      #   情况（branch 创建、diff 失败）按「跑」处理——跳过必须是确信的。
+      - name: Decide whether the guards could have changed
+        id: filter
+        working-directory: kit
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..HEAD"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          else
+            RANGE="${{ github.event.before }}..HEAD"
+          fi
+          changed=$(git diff --name-only "$RANGE" 2>/dev/null) || { echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          if echo "$changed" | grep -qE '(^|/)(pkg/arch|internal/arch|pkg/contractscan|pkg/reg|pkg/risk|pkg/audit|pkg/redact)/|script/mutate-|idl/|\.github/workflows/'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout management plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -159,12 +181,14 @@ jobs:
       #   run_one）⇒ 依赖必须**先**进 module cache，否则变异还没开始就先
       #   栽在「依赖解析不出去」上 —— 那也是一种红，但什么也证明不了。
       - name: Download dependencies
+        if: steps.filter.outputs.run == 'true'
         run: |
           go mod download
           (cd jumpserver-mgmt && go mod download)
           (cd jumpserver-exec && go mod download)
 
       - name: Run mutation sweeps
+        if: steps.filter.outputs.run == 'true'
         working-directory: kit
         # 逐个跑、任何一个非零即红；每个脚本先跑 canary 自证 overlay 生效，
         # 所以「全绿」不是「没跑成」——canary 红了那一轮直接不算数。
