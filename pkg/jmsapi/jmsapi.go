@@ -299,6 +299,10 @@ func (c *Client) readRetry(method string) retry.Config {
 // "Token " with an empty key, the server answers 401, and — with no status
 // check on one of the two — the 401's JSON body was fed to a tar reader,
 // which reported "unexpected EOF" instead of a refused credential.
+//
+// ⚠️ The whole body lands in memory. For an archive that can reach gigabytes
+// (a long session's replay) or a caller that pulls many of them, use
+// GetBinaryTo instead — it streams straight into your writer.
 func (c *Client) GetBinary(ctx context.Context, path string) ([]byte, error) {
 	var raw []byte
 	err := retry.Do(ctx, c.readRetry("GET"), func(attempt int) error {
@@ -328,6 +332,89 @@ func (c *Client) GetBinary(ctx context.Context, path string) ([]byte, error) {
 		return err
 	})
 	return raw, err
+}
+
+// GetBinaryTo fetches a non-JSON body and streams it straight into w —
+// GetBinary's job done without ever holding the whole body in memory: a
+// long session's replay archive can reach gigabytes, and a caller that
+// pulls several of them used to pay for all of them at once. Same
+// credential, limiter and Bearer refresh as every other read; the retry
+// replays the whole transfer (the caller must tolerate w receiving the
+// bytes of a failed attempt — write to a scratch file and rename on
+// success if that matters).
+//
+// Status errors keep GetBinary's honest shape: a >=400 answer is reported
+// as an APIError with the (truncated) body BEFORE any byte reaches w —
+// a 401's JSON body is never fed to a tar reader.
+func (c *Client) GetBinaryTo(ctx context.Context, path string, w io.Writer) (int64, error) {
+	var n int64
+	err := retry.Do(ctx, c.readRetry("GET"), func(attempt int) error {
+		written, err := c.doBinaryToOnce(ctx, path, w)
+		if err == nil {
+			n = written
+			return nil
+		}
+		if c.Token != "" {
+			return err
+		}
+		// Same reasoning as GetBinary: only a stale-credential 401 on a
+		// read is worth repeating, and only once.
+		var credErr *CredentialError
+		if errors.As(err, &credErr) {
+			return err
+		}
+		var apiErr *errs.APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+			return err
+		}
+		c.invalidateBearer()
+		written, err = c.doBinaryToOnce(ctx, path, w)
+		if err == nil {
+			n = written
+		}
+		return err
+	})
+	return n, err
+}
+
+// doBinaryToOnce is one streaming GET of a non-JSON body: the credential's
+// own header (Token or the refreshed Bearer), the limiter, an honest status
+// error — and, on success, the body piped into w instead of a []byte.
+func (c *Client) doBinaryToOnce(ctx context.Context, path string, w io.Writer) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.apiURL(path), nil)
+	if err != nil {
+		return 0, err
+	}
+	auth, err := c.authorization(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return 0, err
+		}
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("call GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		// Read (a bounded slice of) the error body so the APIError carries
+		// the server's words; nothing has gone into w yet.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 400))
+		return 0, &errs.APIError{
+			Status:     resp.StatusCode,
+			Method:     "GET",
+			Path:       path,
+			Body:       Truncate(string(raw), 400),
+			RetryAfter: retryAfter(resp),
+		}
+	}
+	return io.Copy(w, resp.Body)
 }
 
 // doBinaryOnce is one GET of a non-JSON body: the credential's own header
