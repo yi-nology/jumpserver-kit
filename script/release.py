@@ -329,13 +329,9 @@ def pre_push_checks(repo, which):
     binary = os.path.join(repo, "bin", BIN_NAME[which])
     if not os.path.exists(binary) and not DRY:
         raise SystemExit(f"❌ 找不到 {binary}——先 build 再自检。")
-    if "--no-doctor" not in sys.argv:
-        step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
-        run([binary, "--doctor"], cwd=repo, capture=False)
-    else:
-        print("  - --no-doctor：跳过 doctor")
-    # 本地 bin 冒烟：环境凭据从 mcp.json 该 server 的 env 块继承
-    #（脚本不碰凭据，只复用配置里已有的）。
+    # doctor 与冒烟的环境凭据都从 mcp.json 该 server 的 env 块继承
+    #（脚本不碰凭据，只复用配置里已有的）——doctor 尤其需要：没有 JMS_*
+    # 环境就报「bastion not set」，那不是真红，是本机配置的形状。
     cfg = json.load(open(MCP_JSON, encoding="utf-8"))
 
     def find(o):
@@ -355,6 +351,15 @@ def pre_push_checks(repo, which):
         return None
 
     entry = find(cfg) or {}
+    if "--no-doctor" not in sys.argv:
+        step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
+        import subprocess as sp
+        p = sp.run([binary, "--doctor"], cwd=repo, capture=False,
+                   env={**os.environ, **entry.get("env", {})})
+        if p.returncode != 0 and not DRY:
+            raise SystemExit(f"❌ --doctor 退出码 {p.returncode}，链停住（tag 还在本地，可撤）。")
+    else:
+        print("  - --no-doctor：跳过 doctor")
     local_entry = {"command": binary, "env": entry.get("env", {})}
     smoke(MCP_SERVER_NAME[which], local_entry, which, label="本地 bin（push 前）")
 
