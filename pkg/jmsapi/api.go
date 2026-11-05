@@ -209,6 +209,15 @@ func (c *Client) ListQuery(ctx context.Context, res Resource, q url.Values) ([]m
 	return c.ListAllQuery(ctx, string(res), q)
 }
 
+// ListCounted is the counted walk in the gateway's shape: the resource names
+// the collection, and the total is the server's own count — the number a
+// local filter is measured against (see ListAllCounted for why the count
+// matters). The tool layer names resources; the path-shaped ListAllCounted
+// stays below it, where the protocol guard can see it is not called.
+func (c *Client) ListCounted(ctx context.Context, res Resource, q url.Values) ([]map[string]any, int, error) {
+	return c.ListAllCounted(ctx, string(res), q)
+}
+
 // ListSub reads the rows of a sub-resource of an item — the accounts of a
 // permission, the assets of a user.
 func (c *Client) ListSub(ctx context.Context, res Resource, id, sub string) ([]map[string]any, error) {

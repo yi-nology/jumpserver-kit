@@ -119,8 +119,11 @@ func verdictField(answer any, name string) (reflect.Value, bool) {
 	if v.Kind() != reflect.Struct {
 		panic(fmt.Sprintf("render.FillVerdict: answer must point at a struct, got %s (setting %s)", v.Kind(), name))
 	}
-	f := v.FieldByName(name)
-	if !f.IsValid() || !f.CanSet() {
+	// The safe lookup, not reflect's own FieldByName: that one panics on a
+	// name promoted through a nil embedded pointer, and the answers are
+	// shapes nobody here controls (see outcome.go's fieldByName).
+	f, ok := fieldByName(v, name)
+	if !ok || !f.CanSet() {
 		return reflect.Value{}, false
 	}
 	return f, true

@@ -8,6 +8,7 @@ import (
 
 	"github.com/oagentkit/tools/bashguard"
 	"gopkg.in/yaml.v3"
+	"mvdan.cc/sh/v3/syntax"
 
 	"github.com/yi-nology/jumpserver-kit/model/jms"
 )
@@ -100,7 +101,17 @@ func flagKind(s string) (bashguard.FlagKind, bool) {
 // Classify buckets a shell command so the caller (and the agent) can decide
 // whether to run it, run it dry, or stop and ask.
 func Classify(cmd string) jms.CommandClass {
+	return classify(cmd, 0)
+}
+
+// classify is Classify with a recursion budget: shell -c strings and eval
+// arguments are classified again, and peel chains (sudo nohup timeout …) walk
+// inward, so the budget stops a pathological nest from looping forever.
+func classify(cmd string, depth int) jms.CommandClass {
 	if strings.TrimSpace(cmd) == "" {
+		return jms.CommandClass_UNKNOWN
+	}
+	if depth > 6 {
 		return jms.CommandClass_UNKNOWN
 	}
 	d := bashguard.Analyze(cmd, table())
@@ -109,7 +120,25 @@ func Classify(cmd string) jms.CommandClass {
 		// statement we can make without running it.
 		return jms.CommandClass_READ
 	}
-	if len(d.Invocations) == 0 {
+	// The destructive judgement walks the WHOLE shell AST, not bashguard's
+	// Invocations list: that list only carries the outermost call, so a
+	// destructive command wrapped in sudo/nohup/timeout/env/xargs, hidden in
+	// $(...) or a backtick, or sitting in the second half of a pipeline used
+	// to sail past the gate (measured: `sudo -n rm -rf /x` classified
+	// MODIFY — no confirmation asked). Measured 2026-11-05.
+	judged := false
+	for _, ce := range allCalls(cmd) {
+		name, args, ok := callNameArgs(ce)
+		if !ok {
+			// A dynamic command name ($VAR) says nothing about what runs.
+			continue
+		}
+		judged = true
+		if judgeInvocation(name, args, depth) {
+			return jms.CommandClass_DANGEROUS
+		}
+	}
+	if !judged && len(d.Invocations) == 0 {
 		// Nothing was parsed: the command is too long, uses a construct the
 		// parser refuses, or is empty. It is not proven safe.
 		return jms.CommandClass_UNKNOWN
@@ -121,6 +150,198 @@ func Classify(cmd string) jms.CommandClass {
 	}
 	// It writes something, but nothing we know how to call irreversible.
 	return jms.CommandClass_MODIFY
+}
+
+// allCalls parses cmd with the real shell grammar and returns every simple
+// command in it — including ones inside $(...), backticks, pipelines, loops
+// and conditionals, which the Invocations surface never showed us.
+func allCalls(cmd string) []*syntax.CallExpr {
+	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return nil
+	}
+	var out []*syntax.CallExpr
+	syntax.Walk(f, func(node syntax.Node) bool {
+		if ce, ok := node.(*syntax.CallExpr); ok {
+			out = append(out, ce)
+		}
+		return true
+	})
+	return out
+}
+
+// callNameArgs flattens a simple command to its program name and literal
+// arguments. A word that is not fully literal (a $VAR, a substitution, an
+// arithmetic expansion) is dropped — the command it might spell cannot be
+// judged from here, which is the same humility the table applies elsewhere.
+func callNameArgs(ce *syntax.CallExpr) (name string, args []string, ok bool) {
+	if len(ce.Args) == 0 {
+		return "", nil, false
+	}
+	name, ok = wordLiteral(ce.Args[0])
+	if !ok {
+		return "", nil, false
+	}
+	for _, a := range ce.Args[1:] {
+		if s, lit := wordLiteral(a); lit {
+			args = append(args, s)
+		}
+	}
+	return name, args, true
+}
+
+// wordLiteral is a word's spelling when every part of it is literal text.
+func wordLiteral(w *syntax.Word) (string, bool) {
+	var b strings.Builder
+	for _, p := range w.Parts {
+		if !writePart(&b, p) {
+			// ParamExp, CmdSubst, ArithmExp, ExtGlob … — dynamic.
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+// writePart appends one word part when it is literal text; double quotes
+// recurse because their contents are literal unless a $ or ` appears.
+func writePart(b *strings.Builder, p syntax.WordPart) bool {
+	switch t := p.(type) {
+	case *syntax.Lit:
+		b.WriteString(t.Value)
+		return true
+	case *syntax.SglQuoted:
+		b.WriteString(t.Value)
+		return true
+	case *syntax.DblQuoted:
+		for _, q := range t.Parts {
+			if !writePart(b, q) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// judgeInvocation judges the command that will actually run: known wrappers
+// are peeled (sudo, nohup, timeout, env, xargs, nice, stdbuf, setsid, exec,
+// command), shells recurse into their -c string, and eval/exec execute their
+// arguments as shell, so those arguments are classified again.
+func judgeInvocation(name string, args []string, depth int) bool {
+	name = baseName(name)
+	// Shells: classify the script, not the shell.
+	if isShell(name) {
+		for i, a := range args {
+			if a == "-c" && i+1 < len(args) {
+				return RequiresConfirmation(classify(args[i+1], depth+1))
+			}
+		}
+		return false
+	}
+	if name == "eval" && len(args) > 0 {
+		// eval executes its arguments as shell text.
+		return RequiresConfirmation(classify(strings.Join(args, " "), depth+1))
+	}
+	if real, rest, wrapped := peelWrapper(name, args); wrapped {
+		return judgeInvocation(real, rest, depth+1)
+	}
+	return destructive(bashguard.Invocation{Name: name, Args: args})
+}
+
+func isShell(name string) bool {
+	switch name {
+	case "sh", "bash", "dash", "zsh", "ksh", "ash":
+		return true
+	}
+	return false
+}
+
+// peelValueFlags names the flags of each wrapper that consume the NEXT
+// argument, so the peel lands on the command and not on a flag's value
+// (`sudo -u root rm …` must not judge "root").
+var peelValueFlags = map[string]map[string]bool{
+	"sudo":    {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-T": true, "-r": true, "-t": true, "-U": true},
+	"timeout": {"-k": true, "-s": true, "--kill-after": true, "--signal": true},
+	"env":     {"-u": true, "-C": true, "-S": true},
+	"xargs":   {"-I": true, "-L": true, "-n": true, "-P": true, "-s": true, "-d": true, "-E": true, "-e": true, "-i": true, "-l": true, "--replace": true, "--max-lines": true, "--max-args": true, "--max-procs": true, "--max-chars": true, "--delimiter": true, "--eof": true, "--arg-file": true},
+	"nice":    {"-n": true, "--adjustment": true},
+	"stdbuf":  {"-i": true, "-o": true, "-e": true},
+	"ionice":  {"-c": true, "-n": true, "-p": true, "-u": true},
+}
+
+// peelBare names the wrappers whose arguments start at the first word that
+// is not a flag.
+var peelBare = map[string]bool{
+	"nohup": true, "setsid": true, "exec": true, "command": true, "builtin": true,
+}
+
+// peelWrapper strips one wrapper layer. ok is false when name is not a
+// wrapper (or carries no inner command), and the caller judges it as-is.
+func peelWrapper(name string, args []string) (inner string, rest []string, ok bool) {
+	vf, isWrapper := peelValueFlags[name]
+	if !isWrapper && !peelBare[name] {
+		return "", nil, false
+	}
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if a == "--" {
+			i++
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			break
+		}
+		if vf[a] {
+			i += 2 // the flag's value is not the command
+			continue
+		}
+		i++
+	}
+	if name == "env" {
+		// env VAR=val … cmd: the assignments are not the command either.
+		for i < len(args) && isAssignment(args[i]) {
+			i++
+		}
+	}
+	if name == "timeout" && i < len(args) && isDuration(args[i]) {
+		i++ // the duration is not the command
+	}
+	if i >= len(args) {
+		return "", nil, false
+	}
+	return args[i], args[i+1:], true
+}
+
+func isAssignment(s string) bool {
+	eq := strings.IndexByte(s, '=')
+	if eq <= 0 {
+		return false
+	}
+	for i := 0; i < eq; i++ {
+		c := s[i]
+		if c != '_' && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func isDuration(s string) bool {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return false
+	}
+	if i < len(s) {
+		switch s[i] {
+		case 's', 'm', 'h', 'd':
+			i++
+		}
+	}
+	return i == len(s)
 }
 
 // RequiresConfirmation reports whether a command of this class has to be

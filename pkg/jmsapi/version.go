@@ -411,8 +411,11 @@ func (c *Client) ReportVersion(ctx context.Context) VersionReport {
 		// does not parse is a SETTING problem, and the probe's error
 		// (if any) would hide it. ⇒ The operator would be told the
 		// deployment "looks like v5" and never that their setting is
-		// invalid.
-		if rep.Err == nil {
+		// invalid. (The setting's parse error is read FIRST here — the
+		// comment always claimed it wins; the code used to drop it.)
+		if verr := c.profileError(); verr != nil {
+			rep.Err = verr
+		} else {
 			rep.Err = err
 		}
 		return rep

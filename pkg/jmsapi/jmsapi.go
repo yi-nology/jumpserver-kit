@@ -267,7 +267,15 @@ func directTransport() *http.Transport {
 // could apply a side effect twice. A read may always be repeated; a write
 // only when the server never saw it (a rate limit).
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) error {
-	return retry.Do(ctx, retry.Config{
+	return retry.Do(ctx, c.readRetry(method), func(attempt int) error {
+		return c.attempt(ctx, method, path, query, body, out)
+	})
+}
+
+// readRetry is the retry policy every READ-shaped call shares — the JSON
+// calls and GetBinary — so the two cannot drift in how patiently they wait.
+func (c *Client) readRetry(method string) retry.Config {
+	return retry.Config{
 		Attempts:    3,
 		Delay:       200 * time.Millisecond,
 		Exponential: true,
@@ -278,9 +286,89 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		Retryable:   func(err error) bool { return c.retryable(method, err) },
 		// The bastion's own advice beats our backoff when it gives one.
 		DelayHint: errs.RetryAfter,
-	}, func(attempt int) error {
-		return c.attempt(ctx, method, path, query, body, out)
+	}
+}
+
+// GetBinary fetches a body that is NOT JSON — a replay archive, a rendered
+// report — with the same credential, limiter and Bearer refresh as the JSON
+// calls.
+//
+// ⚠️ Why it exists: two callers used to hand-build the request and set
+// "Authorization: Token "+token themselves. With a login credential (the
+// only option on v4, where no PrivateToken API exists) that header is
+// "Token " with an empty key, the server answers 401, and — with no status
+// check on one of the two — the 401's JSON body was fed to a tar reader,
+// which reported "unexpected EOF" instead of a refused credential.
+func (c *Client) GetBinary(ctx context.Context, path string) ([]byte, error) {
+	var raw []byte
+	err := retry.Do(ctx, c.readRetry("GET"), func(attempt int) error {
+		b, err := c.doBinaryOnce(ctx, path)
+		if err == nil {
+			raw = b
+			return nil
+		}
+		if c.Token != "" {
+			return err
+		}
+		// Same reasoning as attempt: only a stale-credential 401 on a read
+		// is worth repeating, and only once.
+		var credErr *CredentialError
+		if errors.As(err, &credErr) {
+			return err
+		}
+		var apiErr *errs.APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+			return err
+		}
+		c.invalidateBearer()
+		b, err = c.doBinaryOnce(ctx, path)
+		if err == nil {
+			raw = b
+		}
+		return err
 	})
+	return raw, err
+}
+
+// doBinaryOnce is one GET of a non-JSON body: the credential's own header
+// (Token or the refreshed Bearer), the limiter, and an honest status error —
+// the body is not decoded as anything.
+func (c *Client) doBinaryOnce(ctx context.Context, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.apiURL(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := c.authorization(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	if c.limiter != nil {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &errs.APIError{
+			Status:     resp.StatusCode,
+			Method:     "GET",
+			Path:       path,
+			Body:       Truncate(string(raw), 400),
+			RetryAfter: retryAfter(resp),
+		}
+	}
+	return raw, nil
 }
 
 // attempt performs one call, refreshing an expired Bearer token once.

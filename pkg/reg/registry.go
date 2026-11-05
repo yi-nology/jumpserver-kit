@@ -313,7 +313,15 @@ func Add[In any](r *Registry, t *mcp.Tool, fn mcp.ToolHandlerFor[In, any]) {
 		r.declared[t.Name] = true
 		if s, ok := t.OutputSchema.(*jsonschema.Schema); ok {
 			// The same options the SDK uses, so the two checks agree.
-			resolved, _ = s.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+			r2, err := s.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+			if err != nil {
+				// A schema that does not resolve can never validate — and
+				// "declared but never checked" is the worst of both. Add is
+				// the start-up entry, so this fails loudly and at boot, the
+				// same as a duplicate registration.
+				panic(fmt.Sprintf("reg.Add(%s): output schema does not resolve: %v", t.Name, err))
+			}
+			resolved = r2
 		}
 	}
 

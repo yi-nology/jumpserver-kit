@@ -857,3 +857,20 @@ func TestTheTrailMasksTheCommandLineShapes(t *testing.T) {
 //
 // ⚠️ The separator is "=", ":" **or whitespace**: a command-line
 // argument can be written with any of the three.
+
+// The prose form's whitespace separator ("--password secret" needs it) also
+// fires on an ordinary sentence whose next word happens to follow a
+// credential word: "the password was hunter2" masks "was". That is a KNOWN,
+// ACCEPTED cost — the direction is the safe one (over-mask beats under-mask),
+// and loosening the separator to spare the sentence would reopen the
+// "--password secret" shape. Pinned so the trade is a fact on record, not a
+// surprise the next time someone reads a scrubbed sentence.
+func TestTheProseWhitespaceSeparatorTradesASentence(t *testing.T) {
+	got := Scrub("the password was hunter2")
+	if !strings.Contains(got, "password=****") {
+		t.Errorf("the credential is not masked: %q", got)
+	}
+	if strings.Contains(got, "was hunter2") {
+		t.Errorf("the trailing word survived — the separator was loosened and the trade is gone: %q", got)
+	}
+}

@@ -17,7 +17,6 @@ package jmsapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/oekit/pkg/slicex"
@@ -92,7 +91,7 @@ var ErrListingStale = errors.New("the asset listing could not be refreshed")
 // the listing could not be refreshed. Without the timestamp the two cannot be
 // told apart, and the answer to "is there such an asset?" becomes a guess.
 type listing struct {
-	rows      []json.RawMessage
+	rows      []map[string]any
 	fetchedAt time.Time
 }
 
@@ -305,7 +304,7 @@ func (c *Client) ResolveAssets(ctx context.Context, refs []string) ([]AssetRef, 
 }
 
 // matchAssets picks the referenced assets out of the listing.
-func matchAssets(rows []json.RawMessage, refs []string) ([]AssetRef, error) {
+func matchAssets(rows []map[string]any, refs []string) ([]AssetRef, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
@@ -316,16 +315,15 @@ func matchAssets(rows []json.RawMessage, refs []string) ([]AssetRef, error) {
 	// One pass over the bastion's rows, remembering every match: a reference
 	// may name an asset in two ways, and the first hit wins.
 	found := map[string]AssetRef{}
-	for _, row := range rows {
-		var a map[string]any
-		if err := json.Unmarshal(row, &a); err != nil {
-			continue
-		}
+	for _, a := range rows {
+		// Str, not convert.AnyToStr: a missing field is "" with Str and the
+		// string "<nil>" with AnyToStr — a platform that prints as "<nil>"
+		// in every answer is a silent lie about the machine.
 		ref := AssetRef{
-			ID:       convert.AnyToStr(a["id"]),
-			Name:     convert.AnyToStr(a["name"]),
-			Address:  convert.AnyToStr(a["address"]),
-			Platform: fmt.Sprint(Nested(a, "platform", "name")),
+			ID:       Str(a["id"]),
+			Name:     Str(a["name"]),
+			Address:  Str(a["address"]),
+			Platform: Str(Nested(a, "platform", "name")),
 		}
 		for _, k := range []string{ref.Address, ref.Name, ref.ID} {
 			if k == "" {
@@ -376,12 +374,13 @@ func (c *Client) ResolveAsset(ctx context.Context, ref string) (AssetRef, error)
 }
 
 // assetRows reads every asset the caller can see.
-func (c *Client) assetRows(ctx context.Context) ([]json.RawMessage, error) {
-	var raw json.RawMessage
-	if err := c.Do(ctx, "GET", string(ResAssets), url.Values{"page_size": {"500"}}, nil, &raw); err != nil {
-		return nil, err
-	}
-	return List(raw)
+//
+// It WALKS the listing, not a single fetch: a deployment with pagination
+// wrapping on clamps a page at its configured size, and a single fetch would
+// make every asset past the first window invisible — "no such asset" for a
+// machine that is there. Same discipline as listAll.
+func (c *Client) assetRows(ctx context.Context) ([]map[string]any, error) {
+	return c.ListAllQuery(ctx, string(ResAssets), url.Values{"page_size": {"500"}})
 }
 
 // nearMiss explains a reference that matched nothing.
@@ -390,15 +389,11 @@ func (c *Client) assetRows(ctx context.Context) ([]json.RawMessage, error) {
 // to the wrong machine. But "no such asset" is a misleading answer for
 // something that clearly resembles a real asset, so the candidates it failed
 // to match are offered instead.
-func nearMiss(ref string, rows []json.RawMessage) string {
+func nearMiss(ref string, rows []map[string]any) string {
 	low := strings.ToLower(ref)
 	var near []string
-	for _, row := range rows {
-		var a map[string]any
-		if err := json.Unmarshal(row, &a); err != nil {
-			continue
-		}
-		name, addr := convert.AnyToStr(a["name"]), convert.AnyToStr(a["address"])
+	for _, a := range rows {
+		name, addr := Str(a["name"]), Str(a["address"])
 		if strings.Contains(strings.ToLower(name), low) ||
 			strings.Contains(strings.ToLower(addr), low) {
 			near = append(near, fmt.Sprintf("%s (%s)", name, addr))

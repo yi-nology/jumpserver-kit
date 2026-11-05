@@ -9,6 +9,7 @@ package jmsapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -102,7 +103,12 @@ func (c *Client) listAllCounted(ctx context.Context, path string, extra url.Valu
 					return nil, 0, err
 				}
 			} else {
-				break
+				// A page deep in the walk failed: the rows already read are
+				// a WINDOW, not the collection, and returning them as "all
+				// rows" is the silently-incomplete answer this file exists
+				// to prevent. The error travels with the partial count so
+				// the caller can say how much was seen.
+				return out, serverTotal, fmt.Errorf("page at offset %d: %w", offset, err)
 			}
 		}
 		rows, err := List(raw)
@@ -110,7 +116,7 @@ func (c *Client) listAllCounted(ctx context.Context, path string, extra url.Valu
 			if offset == 0 && len(out) == 0 {
 				return nil, 0, err
 			}
-			break
+			return out, serverTotal, fmt.Errorf("page at offset %d: %w", offset, err)
 		}
 		// The server's own count is the total of the collection it was
 		// asked about, not of this page.
@@ -186,7 +192,9 @@ func (c *Client) listAll(ctx context.Context, path string, extra url.Values) ([]
 					return nil, err
 				}
 			} else {
-				break
+				// Mid-walk failure: partial rows are a window, not the
+				// collection — say so instead of returning them as "all".
+				return out, fmt.Errorf("page at offset %d: %w", offset, err)
 			}
 		}
 		rows, err := List(raw)
@@ -194,7 +202,7 @@ func (c *Client) listAll(ctx context.Context, path string, extra url.Values) ([]
 			if offset == 0 && len(out) == 0 {
 				return nil, err
 			}
-			break
+			return out, fmt.Errorf("page at offset %d: %w", offset, err)
 		}
 		for _, r := range rows {
 			var m map[string]any

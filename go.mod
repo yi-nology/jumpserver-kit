@@ -22,6 +22,7 @@ module github.com/yi-nology/jumpserver-kit
 go 1.26.0
 
 require (
+	mvdan.cc/sh/v3 v3.14.1
 	github.com/cloudwego/gopkg v0.2.1
 	github.com/cloudwego/kitex v0.16.4
 	github.com/google/jsonschema-go v0.4.3
@@ -126,5 +127,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	mvdan.cc/sh/v3 v3.14.1 // indirect
 )

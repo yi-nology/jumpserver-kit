@@ -11,7 +11,42 @@
 
 ### 修复
 
-## [0.6.0] - 2026-11-05
+## [0.7.0] - 2026-11-05
+
+### 修复
+
+- **risk：包装/隐藏的破坏性命令全部逃不过确认门禁**（Critical）：`sudo -n rm -rf /x`、
+  `nohup/timeout/env/xargs` 包裹的 rm、管道后半的 `true | rm -rf /x`、`$(...)`/反引号里的
+  rm、`eval "rm -rf /x"` 此前全被判成 MODIFY——确认门禁一声不吭。根因：bashguard 的
+  Invocations 只带最外层调用。判定层改走完整 shell AST（mvdan/sh，已是依赖）：
+  每个 simple command 经 wrapper 剥壳（含值旗标消耗）递归判定，shell -c / eval 递归分类。
+  20 个新用例钉住；日常命令探针零误伤。
+- **jmsapi：翻页中途失败不再静默截断**：listAll/listAllCounted 在第 N 页失败时曾
+  break 后返回残页+nil error（「全量」是假的）；现在带 offset 的错误原样上报。
+- **jmsapi：assetRows 改翻页**：资产解析原先单发一页（page_size=500），开启分页的部署上
+  窗口外资产被报成「不存在」；走 ListAllQuery 全量翻页。
+- **jmsapi：matchAssets 的 `<nil>` 字面量**：缺失字段曾以 `fmt.Sprint(nil)` =
+  `"<nil>"` 进答案（platform 最典型）；改用 Str()。
+- **jmsapi：ReportVersion 不再丢配置版本解析错**：configured 分支现在先取 profileError。
+- **reg：OutputSchema 解析失败在启动即 panic**：原先 `resolved=nil` 但仍标 declared，
+  「已声明却从未校验」；Add 是启动期入口，与重名注册同一处理。
+- **jmsapi 新增 GetBinary**：非 JSON 体（回放归档、HTML 报告）走与 JSON 调用相同的
+  凭据（Token/自动刷新 Bearer）、限流与 401 重读——修掉两个调用方手拼
+  `Authorization: Token `（登录凭据下是空 key，v4 必 401 且被读成 tar 的 "unexpected EOF"）。
+- render.FillVerdict 的字段查找复用 outcome.go 的防 panic fieldByName（原裸 FieldByName
+  在 nil 嵌入指针提升时会 panic）。
+
+### 变更
+
+- **jmsapi 新增 ListCounted（网关形状）**：ListAllCounted 的资源形版本；工具层的
+  9 处裸路径调用改走它。rawCalls 守卫表补上 ListAllCounted 后立刻抓到这些存量违规
+  （守卫之前对它是瞎的）。
+- redact：散文空白分隔符的已知过遮面（"the password was x" → 遮蔽 x）钉了测试并写明取舍。
+
+### 依赖
+
+- mvdan.cc/sh/v3 由间接抬为直接（risk 的 AST 判定层使用）。
+ - 2026-11-05
 
 ### 新增
 

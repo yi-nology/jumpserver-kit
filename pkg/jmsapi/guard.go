@@ -39,10 +39,11 @@ var apiPath = regexp.MustCompile(`^/[a-z][a-z0-9\-]*/[a-z0-9\-/]*$`)
 // call. They take or return a path, which is exactly what the gateway
 // exists to hide.
 var rawCalls = map[string]bool{
-	"Do":           true,
-	"ListAll":      true,
-	"ListAllQuery": true,
-	"ListIntoPath": true,
+	"Do":             true,
+	"ListAll":        true,
+	"ListAllQuery":   true,
+	"ListAllCounted": true,
+	"ListIntoPath":   true,
 }
 
 // ProtocolViolations scans the Go files of a directory and reports the places
