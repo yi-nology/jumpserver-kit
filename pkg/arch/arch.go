@@ -6,6 +6,7 @@ package arch
 // 改写等于丢教训。路径按新仓布局调整（三个仓的内部布局不一样了），
 // 但「这句话说的是什么事」不许变。
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -159,16 +160,40 @@ func CheckTheEntryLayerIsOneBinaryAtTheRoot(t *testing.T, root, modulePath strin
 // 以及它住的目录。它们一漂，找一个工具的契约就得猜哪个名字是真的——
 // 执行面当年就是这样（idl/exec/exec.thrift 生成 package jmsexec）。
 //
-// 一个词汇可以在一个目录里拆成好几份 thrift（入口 include 各域），
-// 但目录仍然只说**一个**词汇：入口文件是 <pkg>.thrift，目录里每一份文件
-// 都声明 `namespace go <pkg>`——拆的是文件，不是词汇。
+// 两种布局，锚点不同，判的是同一件事：
+//
+//   - 嵌套 idl/<pkg>/（一个仓好几份词汇时，每词汇一目录）：目录名命名
+//     包，入口文件是 <pkg>.thrift，目录里每一份文件都声明
+//     `namespace go <pkg>`；
+//   - 平铺 idl/（单词汇仓，文件直接住在 idl/ 下）：目录名 "idl" 不命名
+//     任何包 —— 包名由全目录**一致**的 `namespace go` 声明，入口文件是
+//     <pkg>.thrift。全目录只能有一份命名空间，否则这一个目录就在说
+//     好几件话。
+//
+// 历史漂移事故在两种布局下都被抓：idl/exec 的文件声明 jmsexec ⇒ 入口
+// 必须是 jmsexec.thrift，缺了就是红——不管目录叫什么。
 //
 // 模型目录按**名字**找，不按固定距离找：hz 布局里服务的模型在
 // biz/<service>/model/，共用在 model/，没有一个统一的路径算术了——
 // 但**名字**仍然得只说一件事，这就是这里查的。
 func CheckContractVocabularyNaming(t *testing.T, root, modulePath string) {
 	t.Helper()
+	for _, e := range contractVocabularyNaming(t, root, modulePath) {
+		t.Errorf("%s", e)
+	}
+}
+
+// contractVocabularyNaming 是检查的本体：返回违规行，由
+// CheckContractVocabularyNaming 记进测试 —— 夹具测试直接读这些行。
+// 它仍收 *testing.T：文件读的 helper 在读不动时是 Fatalf（夹具树不会
+// 走到那条路），而「形状不对」走返回值 —— 可测的正是后者。
+func contractVocabularyNaming(t *testing.T, root, modulePath string) []string {
+	t.Helper()
 	root = absRoot(t, root)
+	var errs []string
+	fail := func(format string, args ...any) {
+		errs = append(errs, fmt.Sprintf(format, args...))
+	}
 	dirs := map[string][]string{}
 	for _, idl := range idlFilesOrFatal(t, root) {
 		dir := filepath.Dir(idl)
@@ -182,10 +207,20 @@ func CheckContractVocabularyNaming(t *testing.T, root, modulePath string) {
 	for _, dir := range names {
 		idls := dirs[dir]
 		base := filepath.Base(dir)
+		// 平铺布局：目录名 "idl" 不命名包，包由文件一致声明的
+		// namespace go 命名。命名空间不一致或缺失在这里就拦住，
+		// 之后的入口与包检查按这份一致的命名空间走。
+		if base == "idl" {
+			base = flatVocabulary(t, root, dir, idls, fail)
+			if base == "" {
+				continue
+			}
+		}
 		entry := filepath.Join(dir, base+".thrift")
 		if _, err := os.Stat(entry); err != nil {
-			t.Errorf("%s: the IDL directory has no entry file named after it: "+
-				"idl/%s/%s.thrift is the convention", relToInternal(root, dir), base, base)
+			fail("%s: the IDL files name the package %s, but there is no "+
+				"entry %s.thrift: the entry is the file the package is "+
+				"reassembled from", relToInternal(root, dir), base, base)
 			continue
 		}
 		ok := true
@@ -195,14 +230,14 @@ func CheckContractVocabularyNaming(t *testing.T, root, modulePath string) {
 			case base:
 				// every file speaks for the directory's package ✓
 			case "":
-				t.Errorf("%s: declares no `namespace go` at all: every file in "+
+				fail("%s: declares no `namespace go` at all: every file in "+
 					"an IDL directory speaks for the package the directory names",
 					relToInternal(root, idl))
 				ok = false
 			default:
-				t.Errorf("%s: declares namespace go %s, but the directory is %s: "+
-					"every file in an IDL directory speaks for the package the "+
-					"directory names", relToInternal(root, idl), ns, base)
+				fail("%s: declares namespace go %s, but the package is %s: "+
+					"every file in an IDL directory speaks for one package",
+					relToInternal(root, idl), ns, base)
 				ok = false
 			}
 		}
@@ -212,15 +247,46 @@ func CheckContractVocabularyNaming(t *testing.T, root, modulePath string) {
 		found := packagesNamed(t, root, base, modulePath)
 		switch len(found) {
 		case 0:
-			t.Errorf("%s: no package called %s anywhere in the repository: "+
+			fail("%s: no package called %s anywhere in the repository: "+
 				"the contract is declared but nowhere to be found", relToInternal(root, entry), base)
 		case 1:
 			// the one package is named after the IDL directory ✓
 		default:
-			t.Errorf("%s: %d packages are called %s (%s): the name has to mean "+
+			fail("%s: %d packages are called %s (%s): the name has to mean "+
 				"one thing", relToInternal(root, entry), len(found), base, strings.Join(found, ", "))
 		}
 	}
+	return errs
+}
+
+// flatVocabulary 返回平铺 idl/ 目录唯一声明的包名；目录没说清一件
+// 事（命名空间缺失或不一致）时返回 ""，调用方跳过这个目录的后续检查
+// —— 错误已经记下了，不重复报。
+func flatVocabulary(t *testing.T, root, dir string, idls []string, fail func(string, ...any)) string {
+	t.Helper()
+	pkg := ""
+	ok := true
+	for _, idl := range idls {
+		ns := namespaceGo(t, idl)
+		rel := relToInternal(root, idl)
+		switch {
+		case ns == "":
+			fail("%s: declares no `namespace go` at all: a flat idl/ "+
+				"directory speaks the one package its files declare", rel)
+			ok = false
+		case pkg == "":
+			pkg = ns
+		case ns != pkg:
+			fail("%s: declares namespace go %s, but this directory already "+
+				"speaks %s: one flat idl/ directory speaks ONE package",
+				rel, ns, pkg)
+			ok = false
+		}
+	}
+	if !ok {
+		return ""
+	}
+	return pkg
 }
 
 // packagesNamed 找出仓里包名叫 name 的目录（路径按相对 internal/ 写）。

@@ -42,7 +42,9 @@
 - 要登记/修改资产、账号、授权 → **管理面仓**（`biz/`）
 - 要在机器上执行命令、传文件 → **执行面仓**（`biz/`）
 - 要改**门禁/契约/结果格式/留痕/脱敏/协议**（两个服务都受影响）→ **本仓**（`pkg/`）
-- 要改**某个工具返回什么形状** → 该服务自己的 `idl/<包名>/`（thrift）→ `script/gen-idl.sh` 生成 → 工具产出它
+- 要改**某个工具返回什么形状** → 该服务自己的 `idl/`（thrift：单词汇仓摊平在
+  `idl/`，入口 `<包名>.thrift`；多词汇仓按 `idl/<包名>/` 每词汇一目录）→
+  `script/gen-idl.sh` 生成 → 工具产出它
   ⚠️ **契约类型写了没人产出 = 契约不存在**（三个仓各有一道守卫盯着：
   管理面 `biz/model/jmsms/contract_test.go`、
   执行面 `biz/model/jmsexec/contract_test.go`、
@@ -139,7 +141,9 @@ kit/                          # 本仓：库，没有 cmd/
 cmd/<binary>/        # 入口（package main）：serve / doctor / tools / version
 biz/<服务>/          # 那个服务的实现（handler / model / policy / router / service）
 conf/<服务>/         # 配置（环境变量 → 结构体）
-idl/<包名>/          # 契约的 thrift 定义：入口 <包名>.thrift + 按域拆的多份
+idl/                 # 契约的 thrift 定义。单词汇仓摊平在这里（入口 <包名>.thrift
+                     #   + 按域拆的多份）；一个仓好几份词汇时按 idl/<包名>/ 每词汇一
+                     #   目录（如本仓的 idl/jms 与 idl/jmsrpc）。守卫两种布局都认
 internal/<服务>/     # 该服务自己的基础设施：client（管理面）/ koko（执行面）
 internal/arch/       # 机械守卫（判据；守卫体在 kit 的 pkg/arch）
 script/              # 构建 / 发布 / 生成 / 校验
