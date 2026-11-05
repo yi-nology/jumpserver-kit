@@ -27,7 +27,7 @@ require (
 	github.com/cloudwego/kitex v0.16.4
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/oagentkit/guardx v0.16.0
+	github.com/oagentkit/guardx v0.17.1
 	github.com/oagentkit/tools v0.10.4
 	github.com/oekit/bootstrap v0.6.8
 	github.com/oekit/concurrency v0.23.4

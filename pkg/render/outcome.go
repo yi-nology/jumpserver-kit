@@ -29,9 +29,10 @@ import (
 // second copy is a second thing to keep in step, and the one that drifts
 // decides what the audit records.
 //
-// The one thing still local is `WouldExecute`: upstream's Outcome does not
-// carry it, and the trail needs it to tell a rehearsal that was merely not
-// confirmed from one that would have run.
+// WouldExecute 上游的判定表自 guardx v0.17.0 起自己带这一格（#39/#41），答案
+// 说了的会同步进嵌入的 invoke.Outcome——链上那份记录就是审计读的那份。
+// 仍然留在本地的是 *bool 的「没说/说了不会跑」之分：留痕的 omitempty 靠它
+// 区分，上游的裸 bool 表达不了「没说」。
 //
 // It is found by reflection rather than by a type switch because the answer's
 // type is the tool's own contract type, and the caller must not have to know
@@ -123,6 +124,12 @@ func OutcomeOf(answer any) *Outcome {
 	o.WouldExecute = optBoolField(would)
 	o.Failure = stringField(failure)
 	o.Delivery = stringField(delivery)
+	// 上游的判定表（guardx v0.17.0 起，#39/#41）自己带这一格：凡答案说了的，同步进
+	// 嵌入的 invoke.Outcome，让链上那份记录——而不是 kit 平行携带的副本——
+	// 成为审计读的那一份。上游语义「只在演练时有意义」，所以非演练恒 false。
+	// 本地 *bool 仍然保留：「答案没说」（nil）与「说了不会跑」（false）是
+	// 两个事实，留痕的 omitempty 靠它区分——上游的裸 bool 表达不了。
+	o.Outcome.WouldExecute = o.DryRun && o.WouldExecute != nil && *o.WouldExecute
 	return o
 }
 

@@ -11,15 +11,51 @@
 
 ### 修复
 
+## [0.10.1] - 2026-11-06
+
+### 变更
+
+- **`would_execute` 上游收编**（kit#5）：guardx 抬 v0.17.1（v0.17.0 的
+  `Outcome` 自带第三格「这次演练若真跑会不会跑」）——答案声明的演练结局
+  同步进嵌入的 invoke.Outcome，链上记录成为审计读的那份；本地 `*bool`
+  保留「没说/说了不会跑」之分（留痕 omitempty 靠它，上游裸 bool 表达不了）。
+  guardx v0.18 的 logredact 重写（#44/#45）刻意不随这次抬——它与留痕
+  幂等/可读性的交互是一桩独立收编，另行立项。
+- CHANGELOG 还原 0.9.0/0.9.1 两段（0.10.0 切段时丢失；GetBinaryTo 的
+  归属纠正回 0.9.0）。
+
 ## [0.10.0] - 2026-11-06
+
+### 修复
+
+- CI mutations job 依赖下载的 `go mod download` 在工作区根目录报
+  no modules specified——每条 cd 进自己的仓（路径过滤把这个坑藏到了
+  首次真跑）。
+
+## [0.9.1] - 2026-11-06
+
+### 变更
+
+- **危险分类三处实测空隙收口**：`git push --force-with-lease`/
+  `--force-if-includes` 判 DANGEROUS；块设备重定向（`cat img > /dev/sda`，
+  走 `Stmt.Redirs` AST）判 DANGEROUS，`/dev/null`/`/dev/zero` 除外；
+  `kubectl delete --dry-run` 不再要确认。
+- CI mutations job 加路径过滤：守卫没变不跑 15 分钟，tag 全量兜底。
+
+## [0.9.0] - 2026-11-06
+
+### 变更
+
+- `GetBinary` 改为 `GetBinaryTo`（流式落盘）的薄封装——回放类大文件的
+  OOM 面收口到调用方一处。
+- **release.py 硬化**：doctor 与冒烟提前到 push 前、push 退避重试、
+  CHANGELOG 自动切段、工具数口径 18/97。
+
 ### 新增
-- **`GetBinaryTo(ctx, path, io.Writer)`**：非 JSON 体（回放归档、渲染报告）
-  的**流式**下载——GetBinary 的凭据、限流、Bearer 刷新一概不变，但正文
-  经 `io.Copy` 直进调用方的 writer，不再整包驻内存（长会话回放可达 GB、
-  一次拉多份时内存线性叠）。>=400 仍是诚实形状的 APIError（截断 body），
-  且报错发生在任何字节写入 w 之前；重试会重放整个传输，调用方若在意
-  失败尝试的残字节请写临时文件成功后改名（doc 已注）。
-- `GetBinary` doc 补 ⚠️ 内存驻留说明并指向 `GetBinaryTo`。
+
+- 网关形状 `ListSubQuery` 与 `PutSub`：子资源的读与写都进了资源词汇。
+- **`CheckToolTableMatchesRegistry`**：文档 `<!-- jms-tools -->` 标记块与
+  注册表的工具名集合机械一致（含自测 7 场景），两个服务已接线。
 ## [0.8.0] - 2026-11-05
 
 ### 变更

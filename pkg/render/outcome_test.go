@@ -82,3 +82,50 @@ func TestAnAnswerWithoutAVerdictDeclaresNone(t *testing.T) {
 		t.Error("a nil answer produced a verdict")
 	}
 }
+
+// The upstream收编 (guardx v0.17.0+, issue #39 in oagentkit/guardx): an
+// answer that declares a rehearsal's would-execute MUST propagate it into
+// the EMBEDDED invoke.Outcome — the chain's record is what the trail reads,
+// and a verdict that lives only in kit's parallel *bool never reaches the
+// upstream layer at all.
+func TestWouldExecutePropagatesIntoTheUpstreamOutcome(t *testing.T) {
+	yes := true
+	cases := []struct {
+		name string
+		in   any
+		want bool
+	}{
+		{"a rehearsal that would run", &struct {
+			DryRun       bool
+			WouldExecute bool
+		}{DryRun: true, WouldExecute: true}, true},
+		{"a rehearsal one confirm short", &struct {
+			DryRun       bool
+			WouldExecute bool
+		}{DryRun: true, WouldExecute: false}, false},
+		{"not a rehearsal", &struct {
+			WouldExecute bool
+		}{WouldExecute: true}, false}, // upstream: 非演练恒 false
+		{"unsaid stays unsaid", &struct {
+			DryRun bool
+		}{DryRun: true}, false},
+	}
+	for _, c := range cases {
+		got := OutcomeOf(c.in)
+		if got == nil {
+			t.Fatalf("%s: no verdict was found", c.name)
+		}
+		if got.Outcome.WouldExecute != c.want {
+			t.Errorf("%s: upstream WouldExecute = %v, want %v (local *bool = %v)",
+				c.name, got.Outcome.WouldExecute, c.want, got.WouldExecute)
+		}
+	}
+	// 指针形态也要走到上游。
+	got := OutcomeOf(&struct {
+		DryRun       *bool
+		WouldExecute *bool
+	}{DryRun: &yes, WouldExecute: &yes})
+	if got == nil || !got.Outcome.WouldExecute {
+		t.Errorf("pointer shape: upstream WouldExecute = %v, want true", got.Outcome.WouldExecute)
+	}
+}
