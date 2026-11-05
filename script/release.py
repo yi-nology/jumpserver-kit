@@ -255,8 +255,8 @@ def smoke(server_name, entry, which):
     )
     if which == "exec":
         script += (
-            "r=rpc(3,'tools/call',{'name':'jmsx_exec','arguments':"
-            + json.dumps(SMOKE_PROBE) + "})\n"
+            "r=rpc(3,'tools/call',{'name':'jmsx_exec','arguments':json.loads("
+            + repr(json.dumps(SMOKE_PROBE)) + ")})\n"
             "sc=r['result'].get('structuredContent',{})\n"
             "print('probe:',sc.get('risk'),'would:',sc.get('would_execute'))\n"
         )
