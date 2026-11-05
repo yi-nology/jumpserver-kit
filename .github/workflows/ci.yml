@@ -110,6 +110,70 @@ jobs:
         # ⚠️ 需要仓库侧配好 codecov 才能上传成功;没配时**不要**让这一条把整个 CI 拉红。
         continue-on-error: true
 
+  # ---- 守卫的牙齿：变异验证每次 CI 都自证一遍 ------------------------------
+  #
+  # ⚠️ 为什么单独一个 job：变异脚本把「规则实现退回旧行为」，看守卫测试
+  #   会不会变红。它们只在**有人记得跑**的时候才有意义 —— 手工跑过几轮
+  #   之后就有了退化的空间（守卫悄悄变哑，没人发现）。接进 CI 让「牙齿
+  #   是真的」成为每次 push 的事实，不是某次人工验证的记忆。
+  # ⚠️ 版本守卫跨三个仓（委派调用点在管理面、反门禁在执行面）⇒ 三棵树
+  #   都要在手，与 Test job 同一套 checkout。
+  mutations:
+    name: Guard mutations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JMS_SIBLING_ROOTS: ${{ github.workspace }}/jumpserver-mgmt:${{ github.workspace }}/jumpserver-exec
+    steps:
+      - name: Checkout kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kit
+          persist-credentials: false
+
+      - name: Checkout management plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-mgmt
+          path: jumpserver-mgmt
+          persist-credentials: false
+
+      - name: Checkout execution plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: yi-nology/jumpserver-exec
+          path: jumpserver-exec
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: kit/go.mod
+          cache: true
+          cache-dependency-path: |
+            kit/go.sum
+            jumpserver-mgmt/go.sum
+            jumpserver-exec/go.sum
+
+      # ⚠️ 变异脚本在副本里跑 `go test` 用的是 GOPROXY=off（见各脚本的
+      #   run_one）⇒ 依赖必须**先**进 module cache，否则变异还没开始就先
+      #   栽在「依赖解析不出去」上 —— 那也是一种红，但什么也证明不了。
+      - name: Download dependencies
+        run: |
+          go mod download
+          (cd jumpserver-mgmt && go mod download)
+          (cd jumpserver-exec && go mod download)
+
+      - name: Run mutation sweeps
+        working-directory: kit
+        # 逐个跑、任何一个非零即红；每个脚本先跑 canary 自证 overlay 生效，
+        # 所以「全绿」不是「没跑成」——canary 红了那一轮直接不算数。
+        run: |
+          for s in script/mutate-*.py; do
+            echo "=== $s ==="
+            python3 "$s" || exit 1
+          done
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
