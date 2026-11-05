@@ -19,30 +19,40 @@ GOWORK=off」会被 go.work 静默跳过、「publish 完不改 mcp.json」会�
 永远打在旧二进制上。每一步的坑都是真踩过的；踩过的坑应该变成代码，不是
 变成下一次还会再踩的记忆。
 
-链的形状（服务仓；底座只有第 1、8 步）：
+链的形状（服务仓；底座 = 预检 → CHANGELOG 切段 → tag → push）：
     1.  预检：工作树干净、在 main、tag 不存在
-    2.  [--kit] 抬 require → GOWORK=off 补 go.sum → 同步 restore 清单
-    3.  抬 main.go 的 Version 常量
-    4.  重生成 swagger（版本进了 OpenAPI，守卫逐字节比对）
-    5.  commit（把 2-4 的改动收进一个提交）
-    6.  tag —— 顺序是刻意的：**先 tag 再 build**（版本守卫拿
+    2.  CHANGELOG 切段：[Unreleased] 的非空小节 → [X.Y.Z] - 今天
+        （本来就空则跳过，不动文件、不产生空提交；kit 链切段后有改动
+        会收进一个独立提交再打 tag）
+    3.  [--kit] 抬 require → GOWORK=off 补 go.sum → 同步 restore 清单
+    4.  抬 main.go 的 Version 常量
+    5.  重生成 swagger（版本进了 OpenAPI，守卫逐字节比对）
+    6.  commit（把 3-5 的改动收进一个提交）
+    7.  tag —— 顺序是刻意的：**先 tag 再 build**（版本守卫拿
         git describe --exact-match 比对，build 时 HEAD 上必须有 tag）
-    7.  build.sh（编译 + 全量测试含 -race；绿之前什么都不往外推）
-    8.  push main + tag
-    9.  publish-mcp.py（新时间戳目录，不覆盖旧二进制）
-    10. 改 ~/.minimax/mcp.json 的 command 指向新目录
-    11. JSON-RPC 冒烟：tools/list 数工具 + exec 多验一次 dry_run
-        （环境变量从 mcp.json 该 server 的 env 块继承——脚本不碰凭据，
-        只复用配置里已有的）
+    8.  build.sh（编译 + 全量测试含 -race；绿之前什么都不往外推）
+    9.  **push 前自检**：--doctor（真 koko 登录；--no-doctor 可跳）+
+        本地 bin 冒烟（tools/list + dry_run 探针）——这两步失败时 tag
+        还只在本地，撤掉重发即可；推上远端才发现冒烟红就收不回了
+        （0.12.0 首发的实录）
+    10. push main + tag（网络抖动是这条链的日常：3 次退避重试，
+        只对传输类失败重试，远端拒绝直接停）
+    11. publish-mcp.py（新时间戳目录，不覆盖旧二进制）
+    12. 改 ~/.minimax/mcp.json 的 command 指向新目录
+    13. JSON-RPC 冒烟（运行时目录复验）：tools/list 数工具 + exec 多验
+        一次 dry_run（环境变量从 mcp.json 该 server 的 env 块继承——
+        脚本不碰凭据，只复用配置里已有的）
 
 ⚠️ 冒烟通过 ≠ 生效：MCP 工具目录是客户端启动时缓存的，**要重启会话**。
 脚本最后会把这句话再打印一遍。
 """
+import datetime
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 # ---- 工作集 -----------------------------------------------------------------
 
@@ -180,9 +190,88 @@ def build(repo):
     run(["./script/build.sh"], cwd=repo, capture=False)
 
 
+def cut_changelog(repo, version):
+    """把 [Unreleased] 下的非空小节切进新版本段（Keep a Changelog 的纪律）。
+
+    发版忘切 CHANGELOG 是每次都会再犯的手活（0.12.0 实录：exec 条目发完
+    还躺在 Unreleased、mgmt 压根没记）——脚本做，比人记可靠。Unreleased
+    本来就空 ⇒ 跳过（不动文件、不产生空提交）。
+    """
+    path = os.path.join(repo, "CHANGELOG.md")
+    if not os.path.exists(path):
+        print("  - 无 CHANGELOG.md，跳过切段")
+        return
+    body = open(path, encoding="utf-8").read()
+    start = body.find("## [Unreleased]")
+    if start < 0:
+        print("  - 无 [Unreleased] 段，跳过切段")
+        return
+    nxt = body.find("\n## ", start + len("## [Unreleased]"))
+    if nxt < 0:
+        nxt = len(body)
+    section = body[start:nxt]
+    # 非空判定：除标题与空模板小节（### 变更 / ### 新增 / ### 修复 这类
+    # 空壳行）之外还有内容，才算有东西可切。
+    lines = [l for l in section.splitlines()
+             if l.strip() and not l.startswith("## [Unreleased]")
+             and not re.fullmatch(r"###\s*\S+", l.strip())]
+    if not lines:
+        print("  - [Unreleased] 已空，跳过切段")
+        return
+    # 切进新段的内容去掉「后面没有内容的 ### 小节」空壳——空壳属于
+    # Unreleased 的模板形状，不属于发出去的版本段。
+    kept, sect_lines = [], section[len("## [Unreleased]"):].splitlines()
+    i = 0
+    while i < len(sect_lines):
+        l = sect_lines[i]
+        if re.fullmatch(r"###\s+\S+", l.strip()):
+            j = i + 1
+            while j < len(sect_lines) and not sect_lines[j].strip():
+                j += 1
+            if j < len(sect_lines) and sect_lines[j].strip() \
+                    and not sect_lines[j].strip().startswith("###"):
+                kept.append(l)
+            i = j
+            continue
+        kept.append(l)
+        i += 1
+    today = datetime.date.today().isoformat()
+    new_section = (
+        "## [Unreleased]\n\n"
+        "### 变更\n\n### 新增\n\n### 修复\n\n"
+        + f"## [{version}] - {today}\n"
+        + "\n".join(kept).strip("\n")
+        + "\n"
+    )
+    print(f"  切段：Unreleased 的 {len(lines)} 行内容 → [{version}] - {today}")
+    if not DRY:
+        open(path, "w", encoding="utf-8").write(
+            body[:start] + new_section + body[nxt:].lstrip("\n"))
+
+
 def push(repo, version):
-    step("push main + tag")
-    git(repo, "push", "origin", "main", f"v{version}")
+    step("push main + tag（网络抖动是这个链的日常，包退避重试）")
+    attempt, last = 1, None
+    while attempt <= 3:
+        p = subprocess.run(
+            ["git", "push", "origin", "main", "v" + version], cwd=repo,
+            capture_output=True, text=True)
+        if p.returncode == 0:
+            print(f"  ✓ push 成功" + ("（第 %d 次）" % attempt if attempt > 1 else ""))
+            return
+        last = (p.stdout or "") + (p.stderr or "")
+        # 只对传输类失败重试：远端拒绝（非 fast-forward、保护分支）重试
+        # 也一样拒，直接停。
+        if "rejected" in last or "protected" in last:
+            break
+        print(f"  ✗ 第 {attempt} 次失败：{last.strip().splitlines()[-1] if last.strip() else '?'}")
+        if attempt < 3:
+            wait = 5 * attempt
+            print(f"    {wait}s 后重试……")
+            if not DRY:
+                time.sleep(wait)
+        attempt += 1
+    raise SystemExit(f"❌ push 三次未过（或被远端拒绝），链在此停住：\n{last[-1500:]}")
 
 
 def publish(repo):
@@ -227,8 +316,51 @@ def repoint_mcp_config(server_name, binary_path):
     return entry
 
 
-def smoke(server_name, entry, which):
-    step("JSON-RPC 冒烟：tools/list 数工具" +
+BIN_NAME = {"exec": "jumpserver-exec", "mgmt": "jumpserver-mgmt"}
+
+
+def pre_push_checks(repo, which):
+    """push 前的自检：--doctor（真 koko 登录）+ 本地 bin 冒烟。
+
+    顺序是刻意的：这两步失败时 tag 还只在本地，撤掉重发即可；
+    推上远端之后才发现冒烟红，收不回（0.12.0 首发的实录）。
+    --no-doctor 跳过 doctor（无堡垒机网络/凭据的机器上发版用）。
+    """
+    binary = os.path.join(repo, "bin", BIN_NAME[which])
+    if not os.path.exists(binary) and not DRY:
+        raise SystemExit(f"❌ 找不到 {binary}——先 build 再自检。")
+    if "--no-doctor" not in sys.argv:
+        step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
+        run([binary, "--doctor"], cwd=repo, capture=False)
+    else:
+        print("  - --no-doctor：跳过 doctor")
+    # 本地 bin 冒烟：环境凭据从 mcp.json 该 server 的 env 块继承
+    #（脚本不碰凭据，只复用配置里已有的）。
+    cfg = json.load(open(MCP_JSON, encoding="utf-8"))
+
+    def find(o):
+        if isinstance(o, dict):
+            if MCP_SERVER_NAME[which] in o and isinstance(o[MCP_SERVER_NAME[which]], dict) \
+                    and "command" in o[MCP_SERVER_NAME[which]]:
+                return o[MCP_SERVER_NAME[which]]
+            for v in o.values():
+                r = find(v)
+                if r:
+                    return r
+        if isinstance(o, list):
+            for v in o:
+                r = find(v)
+                if r:
+                    return r
+        return None
+
+    entry = find(cfg) or {}
+    local_entry = {"command": binary, "env": entry.get("env", {})}
+    smoke(MCP_SERVER_NAME[which], local_entry, which, label="本地 bin（push 前）")
+
+
+def smoke(server_name, entry, which, label="运行时目录"):
+    step(f"JSON-RPC 冒烟（{label}）：tools/list 数工具" +
               (" + dry_run 探针" if which == "exec" else ""))
     env = dict(os.environ)
     env.update(entry.get("env", {}))
@@ -290,11 +422,17 @@ def main():
 
     preflight(repo, version)
     if which == "kit":
+        cut_changelog(repo, version)
+        if tree_dirty(repo):
+            # 切段产生了改动：收进一个提交再打 tag。
+            git(repo, "add", "-A")
+            git(repo, "commit", "-m", f"changelog: 切段 v{version}")
         tag(repo, version)
-        # 底座没有二进制与发布面：tag → push 即完成。
+        # 底座没有二进制与发布面：changelog 切段 → tag → push 即完成。
         push(repo, version)
         print(f"\n✅ kit v{version} 已推。两个服务仓接着各自发（--kit v{version}）。")
         return
+    cut_changelog(repo, version)
     if kit:
         bump_kit_require(repo, kit)
     bump_version_constant(repo, version)
@@ -303,10 +441,12 @@ def main():
            (f"：底座抬 {kit}" if kit else ""))
     tag(repo, version)
     build(repo)
+    # push 前自检（doctor + 本地 bin 冒烟）：失败时 tag 还只在本地。
+    pre_push_checks(repo, which)
     push(repo, version)
     binary = publish(repo)
     entry = repoint_mcp_config(MCP_SERVER_NAME[which], binary)
-    smoke(MCP_SERVER_NAME[which], entry, which)
+    smoke(MCP_SERVER_NAME[which], entry, which, label="运行时目录复验")
 
     want = TOOL_COUNT[which]
     print(f"\n✅ {which} v{version} 全链走完：tag 已推、二进制 {binary}")
