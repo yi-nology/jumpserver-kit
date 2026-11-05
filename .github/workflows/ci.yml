@@ -182,8 +182,11 @@ jobs:
       #   栽在「依赖解析不出去」上 —— 那也是一种红，但什么也证明不了。
       - name: Download dependencies
         if: steps.filter.outputs.run == 'true'
+        # 每条都在自己的仓里下：裸的 go mod download 在工作区根目录跑会
+        # 报「no modules specified」——mutations job 从引入起就带这个坑，
+        # 路径过滤把它藏到了现在（2026-11-06 首次真跑才炸出来）。
         run: |
-          go mod download
+          (cd kit && go mod download)
           (cd jumpserver-mgmt && go mod download)
           (cd jumpserver-exec && go mod download)
 
