@@ -73,7 +73,7 @@ MCP_JSON = os.path.expanduser("~/.minimax/mcp.json")
 MCP_SERVER_NAME = {"exec": "jms-exec", "mgmt": "jumpserver"}
 
 # 工具数钉值（policy 守卫的对外口径；改了工具就要来这里对齐）。
-TOOL_COUNT = {"exec": 16, "mgmt": 97}
+TOOL_COUNT = {"exec": 18, "mgmt": 97}
 
 # 冒烟时 exec 的 dry_run 探针：必判 READ（危险分类回归的第一个信号）。
 SMOKE_PROBE = {"asset": "smoke-probe", "command": "df -h", "dry_run": True}
