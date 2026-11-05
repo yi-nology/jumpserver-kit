@@ -57,8 +57,10 @@ def doc_blocks(docs_roots):
                           if n.endswith((".md", ".txt"))]
         for f in files:
             text = open(f, encoding="utf-8", errors="replace").read()
+            # The OPEN marker may carry an inline note (<!-- tools:x 说明... -->);
+            # only the CLOSE marker must be bare, so the block end is unambiguous.
             for m in re.finditer(
-                    r"<!--\s*tools:[a-z-]+\s*-->(.*?)<!--\s*/tools:[a-z-]+\s*-->",
+                    r"<!--\s*tools:[a-z-]+[^>]*-->(.*?)<!--\s*/tools:[a-z-]+\s*-->",
                     text, re.S):
                 blocks.append((f, m.group(1)))
     return blocks
