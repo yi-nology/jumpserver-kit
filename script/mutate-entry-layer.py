@@ -67,6 +67,11 @@ def repo_by_name(name):
     for r in ROOTS:
         if os.path.basename(r) == name:
             return os.path.join(WS, os.path.basename(r))
+    if name == "jumpserver-kit":
+        # CI 把底座 checkout 到 kit/（目录名不是仓名）⇒ 底座就是**本仓**，
+        # 按脚本自己的位置认，不靠目录名（2026-11-06 CI 首跑实测）。
+        own = workset.own_root(__file__)
+        return os.path.join(WS, os.path.basename(own))
     raise SystemExit("⚠️  工作集里没有 %s 这个仓（工作集：%s）" % (name, ", ".join(ROOTS)))
 
 
