@@ -180,12 +180,31 @@ jobs:
       # ⚠️ 变异脚本在副本里跑 `go test` 用的是 GOPROXY=off（见各脚本的
       #   run_one）⇒ 依赖必须**先**进 module cache，否则变异还没开始就先
       #   栽在「依赖解析不出去」上 —— 那也是一种红，但什么也证明不了。
+      # ⚠️ go.work 不入库（本地联调接线）⇒ CI 的三个 checkout 之间没有
+      #   工作区关系 ⇒ 服务仓经 go.mod require 从**代理**解析 kit ⇒ 对 kit
+      #   源码的 overlay 变异根本到不了编译里（2026-11-06 实测：「词表」变异
+      #   本地红、CI 绿，差异全在这）。job 必须自己把三仓接成工作区，变异
+      #   才落在被编译的那份代码上。
+      - name: Wire the workset (go.work)
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cat > go.work <<'EOF'
+          go 1.26.0
+
+          use (
+            ./kit
+            ./jumpserver-mgmt
+            ./jumpserver-exec
+          )
+          EOF
+
       - name: Download dependencies
         if: steps.filter.outputs.run == 'true'
         # 每条都在自己的仓里下：裸的 go mod download 在工作区根目录跑会
         # 报「no modules specified」——mutations job 从引入起就带这个坑，
         # 路径过滤把它藏到了现在（2026-11-06 首次真跑才炸出来）。
         run: |
+          go work sync
           (cd kit && go mod download)
           (cd jumpserver-mgmt && go mod download)
           (cd jumpserver-exec && go mod download)
