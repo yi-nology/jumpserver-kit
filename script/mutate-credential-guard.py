@@ -98,6 +98,18 @@ def make_copy():
         shutil.copytree(src, dst,
                         ignore=shutil.ignore_patterns(".git", "__pycache__", "node_modules"))
 
+    # ⚠️ go.work 不入库：CI 的三个 checkout 之间没有工作区关系，服务副本
+    #   会经 go.mod require 从**代理解析 kit**——对 kit 副本源码的 overlay
+    #   变异根本到不了编译里（2026-11-06 实测：「词表」变异本地红、CI 绿；
+    #   本地每个服务仓有一份不入库的 go.work 才被 copytree 一起带进副本）。
+    #   副本必须自己接成工作区：WS/go.work 兜底（副本自带 go.work 时以离
+    #   构建目录更近的那份为准，两者等价）。
+    with open(os.path.join(WS, "go.work"), "w") as f:
+        f.write("go 1.26.0\n\nuse (\n")
+        for r in COPY_ROOTS:
+            f.write("\t./" + os.path.basename(r) + "\n")
+        f.write(")\n")
+
 
 def write_in(repo, relpath, content):
     """在**副本**里写一个文件，返回它的绝对路径。"""
