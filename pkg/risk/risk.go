@@ -120,21 +120,22 @@ func classify(cmd string, depth int) jms.CommandClass {
 		// statement we can make without running it.
 		return jms.CommandClass_READ
 	}
-	// The destructive judgement walks the WHOLE shell AST, not bashguard's
-	// Invocations list: that list only carries the outermost call, so a
-	// destructive command wrapped in sudo/nohup/timeout/env/xargs, hidden in
-	// $(...) or a backtick, or sitting in the second half of a pipeline used
-	// to sail past the gate (measured: `sudo -n rm -rf /x` classified
-	// MODIFY — no confirmation asked). Measured 2026-11-05.
+	// The destructive judgement walks the WHOLE shell AST via upstream's
+	// AllCalls (bashguard v0.12.0+, oagentkit/tools#35 — the field exists
+	// precisely because this fleet used to hand-roll the same syntax.Walk):
+	// Invocations only carries the outermost call, so a destructive command
+	// wrapped in sudo/nohup/timeout/env/xargs, hidden in $(...) or a
+	// backtick, or sitting in the second half of a pipeline used to sail
+	// past the gate (measured: `sudo -n rm -rf /x` classified MODIFY — no
+	// confirmation asked). Measured 2026-11-05.
 	judged := false
-	for _, ce := range allCalls(cmd) {
-		name, args, ok := callNameArgs(ce)
-		if !ok {
+	for _, c := range d.AllCalls {
+		if c.Name == "" {
 			// A dynamic command name ($VAR) says nothing about what runs.
 			continue
 		}
 		judged = true
-		if judgeInvocation(name, args, depth) {
+		if judgeInvocation(c.Name, c.Args, depth) {
 			return jms.CommandClass_DANGEROUS
 		}
 	}
@@ -194,44 +195,6 @@ func dangerousRedirect(cmd string) bool {
 		return true
 	})
 	return found
-}
-
-// allCalls parses cmd with the real shell grammar and returns every simple
-// command in it — including ones inside $(...), backticks, pipelines, loops
-// and conditionals, which the Invocations surface never showed us.
-func allCalls(cmd string) []*syntax.CallExpr {
-	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
-	if err != nil {
-		return nil
-	}
-	var out []*syntax.CallExpr
-	syntax.Walk(f, func(node syntax.Node) bool {
-		if ce, ok := node.(*syntax.CallExpr); ok {
-			out = append(out, ce)
-		}
-		return true
-	})
-	return out
-}
-
-// callNameArgs flattens a simple command to its program name and literal
-// arguments. A word that is not fully literal (a $VAR, a substitution, an
-// arithmetic expansion) is dropped — the command it might spell cannot be
-// judged from here, which is the same humility the table applies elsewhere.
-func callNameArgs(ce *syntax.CallExpr) (name string, args []string, ok bool) {
-	if len(ce.Args) == 0 {
-		return "", nil, false
-	}
-	name, ok = wordLiteral(ce.Args[0])
-	if !ok {
-		return "", nil, false
-	}
-	for _, a := range ce.Args[1:] {
-		if s, lit := wordLiteral(a); lit {
-			args = append(args, s)
-		}
-	}
-	return name, args, true
 }
 
 // wordLiteral is a word's spelling when every part of it is literal text.

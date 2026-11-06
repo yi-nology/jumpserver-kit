@@ -162,8 +162,14 @@ func TestTheCredentialWordList(t *testing.T) {
 		`{"session":"abc"}`, `{"key_id":"k"}`, `{"secret_type":"password"}`,
 		`{"token_count":5}`, `{"keyword":"x"}`, `{"monkey":"x"}`,
 		`{"keywords":["a","b"]}`, `{"public_key":"ssh-rsa AAA"}`,
-		`{"tokens":"t"}`, `{"passwords":"p"}`, `{"session_id":"s"}`,
+		`{"tokens":"t"}`, `{"session_id":"s"}`,
 		`{"secretary":"bob"}`,
+	}
+	// ⚠️ guardx v0.19 把 password 的复数形态纳入凭证词（oagentkit/guardx#45，
+	// 刻意的 over-mask：bypass 类词尾命中的代价，方向安全）；tokens 仍 innocent。
+	// 两侧都钉住：词表再收紧/放宽时这里会叫。
+	if out := Scrub(`{"passwords":"p"}`); !strings.Contains(out, "****") {
+		t.Errorf("the plural credential word was left clear: %s", out)
 	}
 	for _, in := range keep {
 		out := Scrub(in)

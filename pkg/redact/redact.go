@@ -133,6 +133,12 @@ func Scrub(text string) string {
 	// front to fix the escaped quotes took that job away from it ⇒ a
 	// colon-form credential's tail went back into the trail.)
 	text = maskProseCredentials(text)
+	// 引号容忍的第二遍只在没有结构可保的文本上跑：整行仍是合法 JSON 时
+	// 上游已经按键整值打码过，残余形状不存在——再跑只会把健康的 JSON 打
+	// 坏（实测）。残余（password":尾巴）只出现在非 JSON 的自由文本里。
+	if !json.Valid([]byte(text)) {
+		text = maskProseCredentialsAgain(text)
+	}
 	return putBackBareCredentials(text, flags)
 }
 
@@ -720,6 +726,15 @@ var proseCredentialRE = regexp.MustCompile(
 	`(?i)(^|[^a-z0-9_.-])((?:--)?[a-z0-9_.-]*(?:` + credentialWordPattern + `))(?:\s*[:=]\s*|[ \t]+)` +
 		`("(?:[^"\\]|\\[^"])*"|\\"(?:[^"\\]|\\[^"])*\\"|'[^']*'|(?:[^"\s,}\]\\]|\\.)*)`)
 
+// proseCredentialQuotedRE 是第二遍专用的变体：多认一个「键与分隔符之间粘着
+// 引号」的形状（key" :value）。上游结构保形打码（guardx v0.18+）不再吃键的
+// 收尾引号，残余正是这个形状——第一遍不该认它（良性 JSON 的键后就是引号，
+// 认了会把结构打坏），只有打码之后的第二遍才该认（实测：password":p&ssw0rd
+// 的尾巴漏进留痕）。
+var proseCredentialQuotedRE = regexp.MustCompile(
+	`(?i)(^|[^a-z0-9_.-])((?:--)?[a-z0-9_.-]*(?:` + credentialWordPattern + `))(?:"?\s*[:=]\s*|[ \t]+)` +
+		`("(?:[^"\\]|\\[^"])*"|\\"(?:[^"\\]|\\[^"])*\\"|'[^']*'|(?:[^"\s,}\]\\]|\\.)*)`)
+
 // paramNameRE matches the name of a URL parameter — the thing that
 // follows a `&` when the `&` separates rather than belongs.
 var paramNameRE = regexp.MustCompile(`^[a-z0-9_.-]+=`)
@@ -757,6 +772,12 @@ func maskProseCredentials(text string) string {
 	return maskProseCredentialsIn(text, "")
 }
 
+// maskProseCredentialsAgain 是第二遍：用认「引号粘键」的变体收上游打码留下
+// 的残余尾巴（见 proseCredentialQuotedRE 的注释）。
+func maskProseCredentialsAgain(text string) string {
+	return maskProseCredentialsInRE(text, "", proseCredentialQuotedRE)
+}
+
 // maskProseCredentialsIn is maskProseCredentials with the text in front
 // of it.
 //
@@ -766,7 +787,11 @@ func maskProseCredentials(text string) string {
 // credential ⇒ the SAME `&` gets two different answers in the two
 // passes ⇒ the trail loses the text behind it.
 func maskProseCredentialsIn(text, before string) string {
-	matches := proseCredentialRE.FindAllStringSubmatchIndex(text, -1)
+	return maskProseCredentialsInRE(text, before, proseCredentialRE)
+}
+
+func maskProseCredentialsInRE(text, before string, re *regexp.Regexp) string {
+	matches := re.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
 		return text
 	}
