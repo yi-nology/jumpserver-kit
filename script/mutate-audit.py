@@ -340,9 +340,9 @@ mut("不认不是我们的行", {f"{A}/read.go": read.replace(
     "TestALineThatIsNotACallIsNotAFact")
 
 mut("limit 没有上限", {f"{A}/read.go": read.replace(
-    """	if limit > MaxReadLimit {
-		limit = MaxReadLimit
-	}""", "")},
+    """	case asked > MaxReadLimit:
+		return MaxReadLimit
+""", "")},
     "TestTheLimitHasACeiling")
 
 # ⚠️ 一次变异只改**一处** ⇒ 原来的 `str.replace` 命中**两处**（队列里那
@@ -489,12 +489,12 @@ mut("上限没接到文件上", {f"{A}/file.go": file.replace(
 
 # ---- 答复面：跳过的行数、上限的措辞 ----------------------------------------
 mut("note 不说跳过了几行", {f"{H}/audit.go": handler.replace(
-    "len(rows), res.Total, effectiveLimit(args.Limit), skippedNote(res.Skipped),",
-    "len(rows), res.Total, effectiveLimit(args.Limit), \"\",")},
+    "len(rows), res.Total, audit.EffectiveLimit(args.Limit), skippedNote(res.Skipped),",
+    "len(rows), res.Total, audit.EffectiveLimit(args.Limit), \"\",")},
     "TestTheAnswerSaysWhenItCouldNotReadEverything", "./biz/handler/")
 
 mut("note 的上限写天花板", {f"{H}/audit.go": handler.replace(
-    "effectiveLimit(args.Limit)", "audit.MaxReadLimit")},
+    "audit.EffectiveLimit(args.Limit)", "audit.MaxReadLimit")},
     "TestTheAnswerDoesNotClaimItMissedAnything", "./biz/handler/")
 
 mut("答复不报 skipped", {f"{H}/audit.go": handler.replace(
@@ -675,11 +675,15 @@ mut("非标量凭据不摘出", {f"{R}/redact.go": sub1(redact,
 
 # ⚠️ 词表长出一个**本仓自己参数**的名字 ⇒ 留痕不再记这个参数 ⇒
 # 「查的是哪一条会话」这种定位线索没了（本仓真实命中过 session/key_id）。
-# ⚠️ 与上面那条「散文兜底过掩」是**不同的编辑**（加的是 group，不是 session）
+# ⚠️ 词要用**两仓里真实存在的参数名**：原来的 "group" 在任何 handler 里
+# 都无参数可撞，守卫按设计沉默 ⇒ 变异白活（2026-11-06 实测存活）。"path"
+# 一进去，bg 工具的 path 参数（还有 put/get 的 local_path/remote_path）
+# 立刻全部撞车 ⇒ 守卫必须把每个撞车参数列出来变红。
+# ⚠️ 与上面那条「散文兜底过掩」是**不同的编辑**（加的是 path，不是 session）
 # ⇒ 指纹不同 ⇒ 两条都能查（同一处编辑只能查一次）。
 mut("词表长出自家参数名", {f"{R}/redact.go": sub1(redact,
     '"token", "secret", "passphrase", "credential",',
-    '"token", "secret", "passphrase", "credential", "group",')},
+    '"token", "secret", "passphrase", "credential", "path",')},
     "TestTheRepositorysOwnParametersAreNotMistakenForCredentials", "./internal/arch/")
 
 # ⚠️ 兜底只用在 args 列 ⇒ error 列的同一个凭据明文落盘 ⇒ 一行两水位线。
@@ -876,10 +880,262 @@ mut("doctor 不知道也说", {f"{S}/onboarding.go": onboarding.replace(
 # This one removes the "was it cut?" branch: the column is no longer cut
 # but still carries the marker, so the column is over the ceiling and the
 # test turns red.
+# BLIND_SPOTS 登记「移除 kit 层后测试仍绿」的变异：guardx v0.19 重写的文本
+# 规则把这些形状全部原生接住（kit#10 收编实测），kit 的对应 backstop 层成了
+# 双份——按仓库纪律，双份会漂，该退役。退役本体是 kit#12；在此之前这些变异
+# 预期**绿**，变红反而说明上游退化了（或 kit 层其实在别的形状上还有牙齿，
+# 那也要回头改登记）。
+BLIND_SPOTS = {}
+
+
+def blind(name, files, why, test, pkg="./pkg/audit/"):
+    BLIND_SPOTS[name] = (files, why, test, pkg)
+
+
 CANARY = ("【canary】上限整个不裁", {f"{A}/audit.go": sub1(audit,
     'func clip(s string, n int) string {\n\treturn textx.Trunc(s, n, "…(clipped)")\n}',
     'func clip(s string, n int) string {\n\treturn s\n}')},
     "TestEveryFreeTextColumnHasACeiling", "./pkg/audit/")
+
+
+
+def fingerprint(path, content):
+    """WHERE a mutation changed something — its fingerprint.
+
+    Two mutations with the SAME fingerprint are the same edit under two
+    names, and the sweep would count one of them twice: the headline
+    number would be bigger than the number of things actually checked.
+
+    ⚠️ The position has to be CHARACTER level. A line-level fingerprint
+    called two edits on the same line "the same edit" — and one of them
+    was in a different function entirely (the clip and the truncate).
+
+    ⚠️ The path is part of the fingerprint: the same edit in two
+    DIFFERENT files is two checks, not one.
+
+    ⚠️ ⚠️ And it has to be LINEAR. The first version used
+    difflib.SequenceMatcher(autojunk=False) — with the "popular
+    elements" heuristic switched OFF, that is quadratic on a source file
+    (Go code is full of repeated spaces and braces) ⇒ the fingerprint
+    check alone ate a whole sweep, and it got worse as the files grew.
+    ⇒ The common prefix and the common suffix say the same thing in
+    one pass.
+    """
+    old = open(path).read()
+    if old == content:
+        return (path, "identical")
+    i = 0
+    n = min(len(old), len(content))
+    while i < n and old[i] == content[i]:
+        i += 1
+    j = 0
+    while j < n - i and old[len(old) - 1 - j] == content[len(content) - 1 - j]:
+        j += 1
+    return (path, i, len(old) - j, len(content) - j,
+            hash(old[i:len(old) - j]), hash(content[i:len(content) - j]))
+
+
+def _narrow(original, mutated):
+    """The DIFFERING region of two texts, as LINES.
+
+    ⚠️ The narrowing is done on LINES, not on bytes: a byte-level cut
+    lands in the MIDDLE of a line ⇒ the first and the last line of the
+    region are half lines ⇒ they differ in both texts ⇒ the diff reports
+    a change that is not there ⇒ every mutation looks like it touched
+    two places.
+    ⚠️ The prefix and the suffix are cut at line boundaries ⇒ the region
+    is a whole number of lines ⇒ the diff compares whole lines.
+    """
+    old = original.split("\n")
+    new = mutated.split("\n")
+    p = 0
+    while p < len(old) and p < len(new) and old[p] == new[p]:
+        p += 1
+    s = 0
+    while (s < len(old) - p and s < len(new) - p
+           and old[len(old) - 1 - s] == new[len(new) - 1 - s]):
+        s += 1
+    return old[p:len(old) - s], new[p:len(new) - s]
+
+
+def edit_sites(original, mutated):
+    """How many SEPARATE places a mutation changed.
+
+    ⚠️ The count is of CONTIGUOUS line ranges, not of diff opcodes: one
+    line turned into three lines is ONE change, and an opcode-based
+    count would call it two (a delete plus an insert) ⇒ every mutation
+    that rewrites a line would look like a mutation that touches two
+    places ⇒ and the "one mutation, one place" rule would fire on half
+    the set.
+    ⚠️ The ranges are counted in the ORIGINAL's line numbers: an
+    insertion belongs to the block it was inserted next to ⇒ the range
+    of an insert is the line it sits AFTER ⇒ a block that was rewritten
+    into a longer block (the tail of which happens to match a line of
+    the original) still counts as ONE place.
+    """
+    if original == mutated:
+        return 0
+    old_lines, new_lines = _narrow(original, mutated)
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    ranges = []
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag == "insert":
+            # The insertion sits BEFORE the original's line i1 ⇒ it
+            # belongs to whatever was changed just before it.
+            at = max(i1 - 1, 0)
+            ranges.append((at, at))
+        else:
+            ranges.append((i1, i2))
+    ranges.sort()
+    sites = 0
+    end = None
+    for a, b in ranges:
+        if end is None:
+            sites, end = 1, b
+        elif a <= end:
+            end = max(end, b)
+        else:
+            sites, end = sites + 1, b
+    return sites
+
+
+def appended_bytes(original, mutated):
+    """How many bytes the mutation APPENDED at the END of the file.
+
+    ⚠️ The judgement is made on BYTES, not on lines: a line that got
+    LONGER is not an append — those bytes belong to that line, they did
+    not arrive at the end of the file. ⇒ the common PREFIX says where
+    the original stopped, and only what is behind it counts.
+    ⚠️ The appended text must start at a LINE boundary ⇒ otherwise the
+    last line merely grew.
+    """
+    if len(mutated) <= len(original):
+        return 0
+    i = 0
+    while i < len(original) and original[i] == mutated[i]:
+        i += 1
+    if i < len(original):
+        # The original was changed IN PLACE ⇒ nothing was appended.
+        return 0
+    tail = mutated[i:]
+    if not tail.endswith("\n"):
+        # The last line grew ⇒ that is not an append.
+        return 0
+    return len(tail)
+
+
+def effective_sites(original, mutated):
+    """The number of places a mutation changed, APPEND excluded.
+
+    ⚠️ An appended block (a helper function, a word list) is not a
+    "place the mutation edited" ⇒ it must not be counted as one ⇒ the
+    count is taken over the text WITHOUT the appended tail.
+    """
+    appended = appended_bytes(original, mutated)
+    if appended:
+        mutated = mutated[:len(mutated) - appended]
+    return edit_sites(original, mutated)
+
+
+# ⚠️ **同一条测试可能住在不止一个仓里**：守卫住在各仓自己的 internal/arch/，
+# 而同一个相对包路径在几个仓里都存在 ⇒ 「谁声明了这个测试函数」是唯一
+# 不靠猜的判据（按包路径猜 = 在错的代码上跑，而那看起来跟「守卫是假的」
+# 一模一样）。
+_TEST_INDEX = None
+
+
+def test_index():
+    global _TEST_INDEX
+    if _TEST_INDEX is None:
+        _TEST_INDEX = workset.index_tests(ROOTS)
+    return _TEST_INDEX
+
+
+def test_homes(test, pkg):
+    """这条测试住在哪些仓的哪些包里。"""
+    homes = test_index().get(test)
+    if homes:
+        return homes
+    # 找不到声明处 ⇒ 退回条目里写着的包路径（在工作集里找那个目录）。
+    rel = pkg.strip("./").rstrip("/")
+    return [(r, rel) for r in ROOTS if os.path.isdir(os.path.join(r, rel))]
+
+
+def run_one(name, files, test, pkg, verbose):
+    """Run one mutation. Returns "red", "green" or "build-failed"."""
+    replace = {}
+    for path, content in files.items():
+        tmp = os.path.join(OUT, f"{name}_{os.path.basename(path)}")
+        open(tmp, "w").write(content)
+        replace[path] = tmp
+    overlay = os.path.join(OUT, f"overlay_{name}.json")
+    json.dump({"Replace": replace}, open(overlay, "w"))
+
+    homes = test_homes(test, pkg)
+    if not homes:
+        print(f"⚠️  {name}: 工作集里找不到 {test} 的声明处 —— 这个变异不算数")
+        return "green"
+
+    green = False
+    build_failed = False
+    for repo, pkgdir in homes:
+        p = subprocess.run(
+            ["go", "test", "-v", "-overlay=" + overlay, "./" + pkgdir,
+             "-run", "^" + test + "$"],
+            cwd=repo, capture_output=True, text=True,
+            # ⚠️ PWD must be realpath too: Go's os.Getwd() believes $PWD
+            # over the real path, so the go command resolves the package
+            # through the SYMLINK path while the overlay key is the
+            # realpath — and the overlay is then silently ignored, i.e.
+            # every mutant runs against UNMUTATED code.
+            #
+            # ⚠️ JMS_SIBLING_ROOTS 一起传下去：守卫要知道另外两个仓在哪。
+            env={**os.environ, "GOFLAGS": "-mod=readonly", "GOPROXY": "off",
+                 "PWD": repo, "JMS_SIBLING_ROOTS": SIBLING_ENV})
+        out = p.stdout + p.stderr
+        # ⚠️ The test has to have RUN. A -run pattern that matches nothing
+        # exits 0 — and "nothing ran, so it is green" is exactly how a
+        # mutation sweep lies to you.
+        ran = ("--- PASS: " + test) in out or ("--- FAIL: " + test) in out
+        if not ran:
+            if "build failed" in out or "[setup failed]" in out or "cannot use" in out:
+                # The mutation broke the build. That is the COMPILER catching
+                # it, not the guard — so it is counted apart, and it does not
+                # go into the headline number.
+                build_failed = True
+                continue
+            print(f"⚠️  {name}: 测试**没跑**（{repo} 的 {pkgdir} 里没有 {test}）")
+            continue
+        if p.returncode != 0:
+            if verbose:
+                print(f"✅ {name}: {test} 变红（{os.path.basename(repo)}）")
+            return "red"
+        green = True
+    if verbose and green:
+        print(f"❌ {name}: {test} 仍绿 —— 守卫是假的")
+    if build_failed:
+        if verbose:
+            print(f"🧱 {name}: 编译失败（编译器逮住了改动，测试没跑到 —— 不算守卫立功）")
+        return "build-failed"
+    return "green"
+
+
+def report_stale():
+    """⚠️ 一次报全部 —— 不是第一个就退出。
+
+    ⚠️ 报不出来才是最难查的那种错：一条锚点坏了，别的锚点也坏了，而
+    一次一个 ⇒ 一轮十几分钟 ⇒ 改一个跑一轮 ⇒ 一轮下来才发现下一个。
+    ⇒ 这里把全部坏锚点一次列出来，退出码是 1。
+    """
+    if not STALE:
+        return False
+    print(f"⚠️  变异目标有问题（{len(STALE)} 处）：锚点不唯一或没匹配上")
+    for old, n in STALE:
+        print(f"   - {n} 处: {old!r}")
+    return True
+
 
 
 # ---- 这一轮：底座的散文形态 + 答复面（管理面）的脱敏 ----------------------
@@ -1156,244 +1412,24 @@ mut("答复不认没有凭据的 scheme", {f"{S}/redact.go": sub1(answer,
     anchor_in(answer, "if isAuthScheme(sub[3]) {"),
     "\t\tif false {")},
     "TestRedactSecretsKeepsASchemeWithoutACredential", "./biz/handler/")
+# ---- guardx v0.19 边界（kit#12 退役前登记） ---------------------------------
+# 这六条移除的都是 kit 脱敏器的 backstop 层；v0.19 重写的文本规则把这些形状
+# 全部原生接住（移除后钉测试仍绿，2026-11-06 实测）⇒ 它们不再是「守卫必须
+# 杀」的变异，而是「上游已接管」的边界。登记为预期绿：变红反而要复核（上游
+# 退化，或 kit 层在别的形状上还有牙齿）。kit 层的真退役是 kit#12。
+_V019_BOUNDARY = [
+    "普通键也不再遮蔽大写",
+    "词表漏掉 authorization",
+    "键名规则退回分隔符前缀",
+    "兜底只用在 args 列",
+    "散文规则不跑第二遍",
+    "留痕的散文规则不认空白分隔",
+]
+for _n in _V019_BOUNDARY:
+    _f, _t, _p = M.pop(_n)
+    blind(_n, _f, "guardx v0.19 原生接住（kit#10 实测）；kit 层退役见 kit#12", _t, _p)
 
 
-def fingerprint(path, content):
-    """WHERE a mutation changed something — its fingerprint.
-
-    Two mutations with the SAME fingerprint are the same edit under two
-    names, and the sweep would count one of them twice: the headline
-    number would be bigger than the number of things actually checked.
-
-    ⚠️ The position has to be CHARACTER level. A line-level fingerprint
-    called two edits on the same line "the same edit" — and one of them
-    was in a different function entirely (the clip and the truncate).
-
-    ⚠️ The path is part of the fingerprint: the same edit in two
-    DIFFERENT files is two checks, not one.
-
-    ⚠️ ⚠️ And it has to be LINEAR. The first version used
-    difflib.SequenceMatcher(autojunk=False) — with the "popular
-    elements" heuristic switched OFF, that is quadratic on a source file
-    (Go code is full of repeated spaces and braces) ⇒ the fingerprint
-    check alone ate a whole sweep, and it got worse as the files grew.
-    ⇒ The common prefix and the common suffix say the same thing in
-    one pass.
-    """
-    old = open(path).read()
-    if old == content:
-        return (path, "identical")
-    i = 0
-    n = min(len(old), len(content))
-    while i < n and old[i] == content[i]:
-        i += 1
-    j = 0
-    while j < n - i and old[len(old) - 1 - j] == content[len(content) - 1 - j]:
-        j += 1
-    return (path, i, len(old) - j, len(content) - j,
-            hash(old[i:len(old) - j]), hash(content[i:len(content) - j]))
-
-
-def _narrow(original, mutated):
-    """The DIFFERING region of two texts, as LINES.
-
-    ⚠️ The narrowing is done on LINES, not on bytes: a byte-level cut
-    lands in the MIDDLE of a line ⇒ the first and the last line of the
-    region are half lines ⇒ they differ in both texts ⇒ the diff reports
-    a change that is not there ⇒ every mutation looks like it touched
-    two places.
-    ⚠️ The prefix and the suffix are cut at line boundaries ⇒ the region
-    is a whole number of lines ⇒ the diff compares whole lines.
-    """
-    old = original.split("\n")
-    new = mutated.split("\n")
-    p = 0
-    while p < len(old) and p < len(new) and old[p] == new[p]:
-        p += 1
-    s = 0
-    while (s < len(old) - p and s < len(new) - p
-           and old[len(old) - 1 - s] == new[len(new) - 1 - s]):
-        s += 1
-    return old[p:len(old) - s], new[p:len(new) - s]
-
-
-def edit_sites(original, mutated):
-    """How many SEPARATE places a mutation changed.
-
-    ⚠️ The count is of CONTIGUOUS line ranges, not of diff opcodes: one
-    line turned into three lines is ONE change, and an opcode-based
-    count would call it two (a delete plus an insert) ⇒ every mutation
-    that rewrites a line would look like a mutation that touches two
-    places ⇒ and the "one mutation, one place" rule would fire on half
-    the set.
-    ⚠️ The ranges are counted in the ORIGINAL's line numbers: an
-    insertion belongs to the block it was inserted next to ⇒ the range
-    of an insert is the line it sits AFTER ⇒ a block that was rewritten
-    into a longer block (the tail of which happens to match a line of
-    the original) still counts as ONE place.
-    """
-    if original == mutated:
-        return 0
-    old_lines, new_lines = _narrow(original, mutated)
-    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
-    ranges = []
-    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        if tag == "insert":
-            # The insertion sits BEFORE the original's line i1 ⇒ it
-            # belongs to whatever was changed just before it.
-            at = max(i1 - 1, 0)
-            ranges.append((at, at))
-        else:
-            ranges.append((i1, i2))
-    ranges.sort()
-    sites = 0
-    end = None
-    for a, b in ranges:
-        if end is None:
-            sites, end = 1, b
-        elif a <= end:
-            end = max(end, b)
-        else:
-            sites, end = sites + 1, b
-    return sites
-
-
-def appended_bytes(original, mutated):
-    """How many bytes the mutation APPENDED at the END of the file.
-
-    ⚠️ The judgement is made on BYTES, not on lines: a line that got
-    LONGER is not an append — those bytes belong to that line, they did
-    not arrive at the end of the file. ⇒ the common PREFIX says where
-    the original stopped, and only what is behind it counts.
-    ⚠️ The appended text must start at a LINE boundary ⇒ otherwise the
-    last line merely grew.
-    """
-    if len(mutated) <= len(original):
-        return 0
-    i = 0
-    while i < len(original) and original[i] == mutated[i]:
-        i += 1
-    if i < len(original):
-        # The original was changed IN PLACE ⇒ nothing was appended.
-        return 0
-    tail = mutated[i:]
-    if not tail.endswith("\n"):
-        # The last line grew ⇒ that is not an append.
-        return 0
-    return len(tail)
-
-
-def effective_sites(original, mutated):
-    """The number of places a mutation changed, APPEND excluded.
-
-    ⚠️ An appended block (a helper function, a word list) is not a
-    "place the mutation edited" ⇒ it must not be counted as one ⇒ the
-    count is taken over the text WITHOUT the appended tail.
-    """
-    appended = appended_bytes(original, mutated)
-    if appended:
-        mutated = mutated[:len(mutated) - appended]
-    return edit_sites(original, mutated)
-
-
-# ⚠️ **同一条测试可能住在不止一个仓里**：守卫住在各仓自己的 internal/arch/，
-# 而同一个相对包路径在几个仓里都存在 ⇒ 「谁声明了这个测试函数」是唯一
-# 不靠猜的判据（按包路径猜 = 在错的代码上跑，而那看起来跟「守卫是假的」
-# 一模一样）。
-_TEST_INDEX = None
-
-
-def test_index():
-    global _TEST_INDEX
-    if _TEST_INDEX is None:
-        _TEST_INDEX = workset.index_tests(ROOTS)
-    return _TEST_INDEX
-
-
-def test_homes(test, pkg):
-    """这条测试住在哪些仓的哪些包里。"""
-    homes = test_index().get(test)
-    if homes:
-        return homes
-    # 找不到声明处 ⇒ 退回条目里写着的包路径（在工作集里找那个目录）。
-    rel = pkg.strip("./").rstrip("/")
-    return [(r, rel) for r in ROOTS if os.path.isdir(os.path.join(r, rel))]
-
-
-def run_one(name, files, test, pkg, verbose):
-    """Run one mutation. Returns "red", "green" or "build-failed"."""
-    replace = {}
-    for path, content in files.items():
-        tmp = os.path.join(OUT, f"{name}_{os.path.basename(path)}")
-        open(tmp, "w").write(content)
-        replace[path] = tmp
-    overlay = os.path.join(OUT, f"overlay_{name}.json")
-    json.dump({"Replace": replace}, open(overlay, "w"))
-
-    homes = test_homes(test, pkg)
-    if not homes:
-        print(f"⚠️  {name}: 工作集里找不到 {test} 的声明处 —— 这个变异不算数")
-        return "green"
-
-    green = False
-    build_failed = False
-    for repo, pkgdir in homes:
-        p = subprocess.run(
-            ["go", "test", "-v", "-overlay=" + overlay, "./" + pkgdir,
-             "-run", "^" + test + "$"],
-            cwd=repo, capture_output=True, text=True,
-            # ⚠️ PWD must be realpath too: Go's os.Getwd() believes $PWD
-            # over the real path, so the go command resolves the package
-            # through the SYMLINK path while the overlay key is the
-            # realpath — and the overlay is then silently ignored, i.e.
-            # every mutant runs against UNMUTATED code.
-            #
-            # ⚠️ JMS_SIBLING_ROOTS 一起传下去：守卫要知道另外两个仓在哪。
-            env={**os.environ, "GOFLAGS": "-mod=readonly", "GOPROXY": "off",
-                 "PWD": repo, "JMS_SIBLING_ROOTS": SIBLING_ENV})
-        out = p.stdout + p.stderr
-        # ⚠️ The test has to have RUN. A -run pattern that matches nothing
-        # exits 0 — and "nothing ran, so it is green" is exactly how a
-        # mutation sweep lies to you.
-        ran = ("--- PASS: " + test) in out or ("--- FAIL: " + test) in out
-        if not ran:
-            if "build failed" in out or "[setup failed]" in out or "cannot use" in out:
-                # The mutation broke the build. That is the COMPILER catching
-                # it, not the guard — so it is counted apart, and it does not
-                # go into the headline number.
-                build_failed = True
-                continue
-            print(f"⚠️  {name}: 测试**没跑**（{repo} 的 {pkgdir} 里没有 {test}）")
-            continue
-        if p.returncode != 0:
-            if verbose:
-                print(f"✅ {name}: {test} 变红（{os.path.basename(repo)}）")
-            return "red"
-        green = True
-    if verbose and green:
-        print(f"❌ {name}: {test} 仍绿 —— 守卫是假的")
-    if build_failed:
-        if verbose:
-            print(f"🧱 {name}: 编译失败（编译器逮住了改动，测试没跑到 —— 不算守卫立功）")
-        return "build-failed"
-    return "green"
-
-
-def report_stale():
-    """⚠️ 一次报全部 —— 不是第一个就退出。
-
-    ⚠️ 报不出来才是最难查的那种错：一条锚点坏了，别的锚点也坏了，而
-    一次一个 ⇒ 一轮十几分钟 ⇒ 改一个跑一轮 ⇒ 一轮下来才发现下一个。
-    ⇒ 这里把全部坏锚点一次列出来，退出码是 1。
-    """
-    if not STALE:
-        return False
-    print(f"⚠️  变异目标有问题（{len(STALE)} 处）：锚点不唯一或没匹配上")
-    for old, n in STALE:
-        print(f"   - {n} 处: {old!r}")
-    return True
 
 
 def main():
@@ -1466,6 +1502,26 @@ def main():
         elif outcome == "green":
             survivors.append(name)
     total = len(M)
+    # ---- 登记的边界：上游 v0.19 已接管，预期仍然绿 ----------------------------
+    print()
+    print("🔬 登记的边界（guardx v0.19 已接管这些形状，预期仍绿——退役本体 kit#12）:")
+    for name, (bfiles, why, btest, bpkg) in BLIND_SPOTS.items():
+        broken = False
+        for path, content in bfiles.items():
+            if content == source_of(path):
+                print(f"⚠️  {name}: 变异没生效（模式没匹配上）")
+                broken = True
+                break
+        if broken:
+            survivors.append(name)
+            continue
+        outcome = run_one(name, bfiles, btest, bpkg, verbose)
+        if outcome == "red":
+            print(f"   ⬆️  {name}: 变红了 ⇒ 上游可能退化（或 kit 层在别的形状上还有牙齿）——复核登记")
+            survivors.append(name)
+        else:
+            print(f"   ✔️  {name}: 仍绿（边界没变）—— {why}")
+
     print()
     print(f"{total - len(survivors) - len(build_failed)}/{total} 个变异被**测试**杀掉")
     # ⚠️ The compile failures are counted apart and printed ALWAYS: they

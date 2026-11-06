@@ -142,6 +142,7 @@ D = os.path.dirname(_doctor_file())
 
 handler = open(f"{H}/delegation.go").read()
 token = open(f"{K}/token.go").read()
+mint = open(f"{K}/mint.go").read()
 guard = open(f"{A}/version.go").read()
 doctor = open(f"{D}/doctor.go").read()
 
@@ -312,9 +313,9 @@ mut("错状态门禁：!= Present 改成 == Absent", {
 # ⚠️ 这一条是**守卫生成的那轮**才发现的洞：极性检查只看条件的顶层比较 ⇒
 # `dc != nil && state == CapabilityAbsent` 里的比较被漏掉 ⇒ 反门禁被放过。
 mut("藏在 && 里的反门禁：执行面门禁改成错状态比较", {
-    f"{K}/token.go": sub1(token,
-        "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.MayPresent(ctx, jmsapi.CapDelegation) {",
-        "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.Profile(ctx).State(jmsapi.CapDelegation) == jmsapi.CapabilityAbsent {",
+    f"{K}/mint.go": sub1(mint,
+        "\tif dc := cfg.Delegation; dc != nil && cfg.API.MayPresent(ctx, jmsapi.CapDelegation) {",
+        "\tif dc := cfg.Delegation; dc != nil && cfg.API.Profile(ctx).State(jmsapi.CapDelegation) == jmsapi.CapabilityAbsent {",
         "藏在 && 里的反门禁"),
 }, GUARD_TEST, GUARD_PKG)
 
@@ -362,9 +363,9 @@ mut("措辞在别处重写：doctor 自己写那句「没有委派方案」", {
 # 形状的反门禁的东西 ⇒ 摘掉它，守卫就看不见这一类。
 # ⇒ 它登记在这儿，是为了让「这条边界在哪儿」有一处可以查的地方。
 blind("边界：反门禁 + 摘掉极性检查 ⇒ 没人抓", {
-    f"{K}/token.go": sub1(token,
-        "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.MayPresent(ctx, jmsapi.CapDelegation) {",
-        "\tif dc := delegationConfig(cfg); dc != nil && cfg.API.Profile(ctx).State(jmsapi.CapDelegation) == jmsapi.CapabilityAbsent {",
+    f"{K}/mint.go": sub1(mint,
+        "\tif dc := cfg.Delegation; dc != nil && cfg.API.MayPresent(ctx, jmsapi.CapDelegation) {",
+        "\tif dc := cfg.Delegation; dc != nil && cfg.API.Profile(ctx).State(jmsapi.CapDelegation) == jmsapi.CapabilityAbsent {",
         "边界 B1"),
     f"{A}/version.go": sub1(guard,
         "\tcmps := stateComparisons(cond, constName, imports, bound)\n\tif len(cmps) == 0 {",
