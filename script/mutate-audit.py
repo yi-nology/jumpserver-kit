@@ -573,10 +573,6 @@ mut("词表退成子串匹配", {f"{R}/redact.go": sub1(redact,
     "\t\tif strings.HasSuffix(lower, w) {", "\t\tif strings.Contains(lower, w) {")},
     "TestTheCredentialWordList", "./pkg/redact/")
 
-mut("词表漏掉 authorization", {f"{R}/redact.go": redact.replace(
-    "\"authorization\", ", "")},
-    "TestTheCredentialWordList", "./pkg/redact/")
-
 # ⚠️ 一次变异只改**一处** ⇒ 原来的 `str.replace` 命中**三处**（兜底的三
 # 条规则：普通/转义/双层转义）⇒ 这一条只关**普通**那一条 ⇒ 转义那两条
 # 由「大写键不再遮蔽」「转义兜底的值跨字段」「双层转义形态少写反斜杠」
@@ -1419,7 +1415,6 @@ mut("答复不认没有凭据的 scheme", {f"{S}/redact.go": sub1(answer,
 # 退化，或 kit 层在别的形状上还有牙齿）。kit 层的真退役是 kit#12。
 _V019_BOUNDARY = [
     "普通键也不再遮蔽大写",
-    "词表漏掉 authorization",
     "键名规则退回分隔符前缀",
     "兜底只用在 args 列",
     "散文规则不跑第二遍",

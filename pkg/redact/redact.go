@@ -127,8 +127,8 @@ func Scrub(text string) string {
 	text = maskCredentialKeys(Text(text))
 	// ⚠️ The free-text rule runs a SECOND time, after the shape rules:
 	// the shape rules mask a value only up to the first `&`
-	// ("password=****&TAIL") ⇒ whatever is behind that `&` is still in
-	// the clear, and this pass is the one that takes it.
+	// ("password=****&TAIL") ⇒ whatever is behind that `&` is still in the
+	// clear, and this pass is the one that takes it.
 	// (It used to be the ONLY pass — it ran last — and moving it to the
 	// front to fix the escaped quotes took that job away from it ⇒ a
 	// colon-form credential's tail went back into the trail.)
@@ -136,6 +136,11 @@ func Scrub(text string) string {
 	// 引号容忍的第二遍只在没有结构可保的文本上跑：整行仍是合法 JSON 时
 	// 上游已经按键整值打码过，残余形状不存在——再跑只会把健康的 JSON 打
 	// 坏（实测）。残余（password":尾巴）只出现在非 JSON 的自由文本里。
+	//
+	// ⚠️ kit#12 实测结论（2026-11-06）：这两遍散文 + 键兜底**不能**整层
+	// 退役——收薄构成让 10+ 钉测试红（凭证藏在合法 JSON 的**字符串值**里、
+	// 转义引号、& 尾巴等形状是 kit 层在扛，上游 v0.19 只接住了六条边界变异
+	// 各自的那一种）。退役只能按词表粒度做（authorization 已退）。
 	if !json.Valid([]byte(text)) {
 		text = maskProseCredentialsAgain(text)
 	}
@@ -449,7 +454,9 @@ var credentialKeyRE = regexp.MustCompile(
 var credentialWords = []string{
 	"password", "passwd", "pwd",
 	"token", "secret", "passphrase", "credential",
-	"authorization", "bearer", "cookie", "kubeconfig",
+	// "authorization" 自 guardx v0.19 起在上游词表（kit#12 第一层退役）；
+	// 散文形态与 JSON 形态都经上游 Redact 接住，本表不再重复列。
+	"bearer", "cookie", "kubeconfig",
 	"api_key", "api-key", "apikey",
 	"access_key", "access-key", "accesskey",
 	"secret_key", "secret-key", "secretkey",

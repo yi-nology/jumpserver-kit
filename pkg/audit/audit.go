@@ -353,10 +353,10 @@ func failureText(text string) string {
 // The rules are shape-based (a `password: …` pair, a PEM block, a bearer
 // token), so an ordinary sentence comes through untouched.
 func scrub(text string) string {
-	// ⚠️ The credential-key backstop runs on EVERY free-text column, not
-	// only on the arguments: the upstream scrubber leaves the same holes
-	// everywhere, and a column that was masked while its neighbour was not
-	// is two water levels in one line.
+	// 自由文本列的构成：payload 裁剪 + 上游 Text。guardx v0.19 重写的
+	// 文本规则把键/散文形状大面积接住（kit#12：变异「兜底只用在 args 列」
+	// 在此构成下仍全绿——kit 的键兜底 backstop 对这些列是双份）；留痕侧
+	// 保留的唯一 kit 层是 payload 裁剪（上游没有这个语义）。
 	return redact.Scrub(text)
 }
 
