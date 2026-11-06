@@ -692,6 +692,11 @@ mut("名字过滤失效", {f"{A}/file.go": file.replace(
     "		if !trailFileName.MatchString(base) {\n\t\t\tcontinue\n\t\t}", "")},
     "TestTheOldTrailFilesArePruned", "./pkg/audit/")
 
+mut("词表漏掉 authorization", {f"{R}/redact.go": redact.replace(
+    "\"authorization\", ", "")},
+    "TestTheCredentialWordList", "./pkg/redact/")
+
+
 # ---- 「只洗一次」这个不变量本身 --------------------------------------------
 # ⚠️ 注册表也洗一次 ⇒ 留痕再洗一次 ⇒ 第二次把掩码后的分隔符也吃掉 ⇒
 # args 列少一个字符。

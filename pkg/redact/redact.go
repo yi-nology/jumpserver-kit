@@ -454,9 +454,12 @@ var credentialKeyRE = regexp.MustCompile(
 var credentialWords = []string{
 	"password", "passwd", "pwd",
 	"token", "secret", "passphrase", "credential",
-	// "authorization" 自 guardx v0.19 起在上游词表（kit#12 第一层退役）；
-	// 散文形态与 JSON 形态都经上游 Redact 接住，本表不再重复列。
-	"bearer", "cookie", "kubeconfig",
+	// ⚠️ 词表不只是 kit 自己的刷洗器在用：管理面的审计脱敏
+	//（biz/handler/redact.go 的 kv 规则）按名字问 IsCredentialKey，它的
+	// 路径不过上游 ⇒ 「authorization」对 kit 是冗余、对管理面是承重墙。
+	// 退役按**消费者**判定，不按 kit 单侧的覆盖判定（kit#12 的部分回退，
+	// 2026-11-06：mgmt TestRedactSecretsMasksTheJSONForm 红出来的真相）。
+	"authorization", "bearer", "cookie", "kubeconfig",
 	"api_key", "api-key", "apikey",
 	"access_key", "access-key", "accesskey",
 	"secret_key", "secret-key", "secretkey",
