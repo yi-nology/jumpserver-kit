@@ -523,7 +523,10 @@ def main():
     binary = publish(repo)
     entry = repoint_mcp_config(MCP_SERVER_NAME[which], binary)
     free_the_port(entry.get("env", {}))
-    smoke(MCP_SERVER_NAME[which], entry, which, label="运行时目录复验")
+    runtime_entry = dict(entry)
+    runtime_entry["env"] = {k: v for k, v in entry.get("env", {}).items()
+                            if k not in ("JMS_HTTP_ADDR", "JMS_HTTP_TOKEN")}
+    smoke(MCP_SERVER_NAME[which], runtime_entry, which, label="运行时目录复验")
 
     want = TOOL_COUNT[which]
     print(f"\n✅ {which} v{version} 全链走完：tag 已推、二进制 {binary}")
