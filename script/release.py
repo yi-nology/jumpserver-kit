@@ -319,6 +319,32 @@ def repoint_mcp_config(server_name, binary_path):
 BIN_NAME = {"exec": "jumpserver-exec", "mgmt": "jumpserver-mgmt"}
 
 
+def mcp_entry(server_name):
+    """mcp.json 里该 server 的配置块（command/env 都在里面）。"""
+    cfg = json.load(open(MCP_JSON, encoding="utf-8"))
+
+    def find(o):
+        if isinstance(o, dict):
+            if server_name in o and isinstance(o[server_name], dict) \
+                    and "command" in o[server_name]:
+                return o[server_name]
+            for v in o.values():
+                r = find(v)
+                if r:
+                    return r
+        if isinstance(o, list):
+            for v in o:
+                r = find(v)
+                if r:
+                    return r
+        return None
+
+    entry = find(cfg)
+    if entry is None:
+        raise SystemExit(f"❌ {MCP_JSON} 里找不到 server {server_name!r}，停住（手工接线，别猜）。")
+    return entry
+
+
 def offline_build_check(repo, version):
     """push 前的离线构建核对：把工作区掩护拿掉（GOWORK=off + GOPROXY=off）。
 
@@ -386,25 +412,7 @@ def pre_push_checks(repo, which):
     # doctor 与冒烟的环境凭据都从 mcp.json 该 server 的 env 块继承
     #（脚本不碰凭据，只复用配置里已有的）——doctor 尤其需要：没有 JMS_*
     # 环境就报「bastion not set」，那不是真红，是本机配置的形状。
-    cfg = json.load(open(MCP_JSON, encoding="utf-8"))
-
-    def find(o):
-        if isinstance(o, dict):
-            if MCP_SERVER_NAME[which] in o and isinstance(o[MCP_SERVER_NAME[which]], dict) \
-                    and "command" in o[MCP_SERVER_NAME[which]]:
-                return o[MCP_SERVER_NAME[which]]
-            for v in o.values():
-                r = find(v)
-                if r:
-                    return r
-        if isinstance(o, list):
-            for v in o:
-                r = find(v)
-                if r:
-                    return r
-        return None
-
-    entry = find(cfg) or {}
+    entry = mcp_entry(MCP_SERVER_NAME[which])
     if "--no-doctor" not in sys.argv:
         step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
         import subprocess as sp
