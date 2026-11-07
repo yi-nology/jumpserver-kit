@@ -185,7 +185,7 @@ func New(opts Options) *Client {
 		HTTP: &http.Client{
 			Timeout:       opts.Timeout,
 			Transport:     directTransport(),
-			CheckRedirect: noRedirect,
+			CheckRedirect: redirectRefuser,
 		},
 	}
 	if opts.HTTPClient != nil {
@@ -200,7 +200,7 @@ func New(opts Options) *Client {
 	c.sessionHTTP = &http.Client{
 		Timeout:       opts.Timeout,
 		Transport:     directTransport(),
-		CheckRedirect: noRedirect,
+		CheckRedirect: redirectRefuser,
 		Jar:           jar,
 	}
 	if opts.HTTPClient != nil {
@@ -223,17 +223,43 @@ func New(opts Options) *Client {
 	return c
 }
 
-// noRedirect refuses to follow a redirect.
+// redirectRefuser keeps every redirect on the caller's plate — and says so
+// loudly when a redirect tries to leave the bastion's host.
 //
-// ⚠️ Why it matters: the version probe asks "is this path a registered
-// route", and the answer it reads is 404-or-not. A redirect to the login
-// page answers 200 — which the probe would read as "the route is there",
-// i.e. as v5. On a v4 deployment that is a false positive: the delegation
-// credential gets presented, comes back 401, and every session walks the
-// slow terminal path.
+// The bastion's API does not redirect (every path this client speaks carries
+// its trailing slash), so the ordinary answer is ErrUseLastResponse: the
+// caller sees the 302 and its Location and can say so, instead of the client
+// silently walking somewhere else.
 //
-// The bastion's API does not redirect, so refusing costs nothing.
-func noRedirect(req *http.Request, via []*http.Request) error {
+// ⚠️ The one case that is NOT handed back as a raw 302: a redirect whose
+// target leaves the bastion's host (or leaves http/https). That answer is an
+// error naming the target — a response the caller might parse as data is
+// exactly the wrong shape for "the endpoint moved sideways". net/http strips
+// the Authorization header on cross-host redirects, but the session cookie
+// jar would still follow, and a credential-bearing client should not wander.
+//
+// ⚠️ Host pinning, not an IP-range policy, on purpose: the bastion's address
+// is operator-configured and runs the gamut from loopbox test rigs to public
+// deployments — an egress-style range table has no opinion worth encoding
+// here. Same-host-or-refuse is the whole rule.
+//
+// ⚠️ Why not FOLLOW same-host redirects at all: the version probe is
+// differential (two paths, compare the answers), which is redirect-robust
+// either way — but no flow this client speaks has ever produced a 302
+// (measured across v4 and v5 deployments), and following would hand the
+// login/session cookie jar a redirect surface it does not need. Refusal is
+// the honest default; the day a deployment needs following, that is a
+// deliberate change with its own probe semantics, not a side effect.
+func redirectRefuser(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil // the first hop is the request itself; nothing to judge yet
+	}
+	home := via[0].URL
+	target := req.URL
+	if target.Host != home.Host || (target.Scheme != "http" && target.Scheme != "https") {
+		return fmt.Errorf("jmsapi: refusing a redirect away from the bastion host: %s -> %s",
+			home.Host, target.Redacted())
+	}
 	return http.ErrUseLastResponse
 }
 
