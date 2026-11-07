@@ -319,6 +319,60 @@ def repoint_mcp_config(server_name, binary_path):
 BIN_NAME = {"exec": "jumpserver-exec", "mgmt": "jumpserver-mgmt"}
 
 
+def offline_build_check(repo, version):
+    """push 前的离线构建核对：把工作区掩护拿掉（GOWORK=off + GOPROXY=off）。
+
+    ⚠️ 为什么必须有这一步：本地开发用 go.work，依赖经工作区并集解析、
+    module cache 又是热的——go.sum 缺 h1 内容哈希这类问题在本地**永远
+    看不见**，CI 的 Release vet 才炸（0.14.1 两轮 tag 漂移的根因）。
+    go.sum 缺口在这里**当场自愈合**：补全后重试，绿了就 fold 进 release
+    提交（tag 同步重打——还没推，安全）。restore 清单类的缺口不自动修，
+    那是要 deliberate 同步的东西，停住报清楚。
+    """
+    step("离线构建核对（GOWORK=off + GOPROXY=off——CI 的判据搬到 push 前）")
+    env = {**os.environ, "GOWORK": "off", "GOPROXY": "off", "GOFLAGS": "-mod=readonly"}
+
+    def once():
+        import subprocess as sp
+        return sp.run(["go", "build", "./..."], cwd=repo, capture_output=True, text=True, env=env)
+
+    p = once()
+    if p.returncode == 0:
+        print("  ✓ 离线可构建（go.sum 完整）")
+        return
+    if DRY:
+        print("  $ go build ./...（--dry 不真跑）")
+        return
+    if "missing go.sum entry" not in (p.stderr or ""):
+        raise SystemExit(f"❌ 离线构建失败（不是 go.sum 问题）：\n{(p.stderr or '')[-800:]}")
+    print("  ⚠️ go.sum 缺内容哈希（CI 上才炸的那类）——补全后重试")
+    run(["go", "mod", "download"], cwd=repo, env={**os.environ, "GOWORK": "off"})
+    p2 = once()
+    if p2.returncode != 0:
+        raise SystemExit(f"❌ 补全后仍离线构建失败（restore 清单可能也要同步）：\n{(p2.stderr or '')[-800:]}")
+    run(["git", "add", "go.sum", "go.mod"], cwd=repo)
+    run(["git", "commit", "--amend", "--no-edit"], cwd=repo)
+    # tag 打在旧提交上 ⇒ 同步重打（还没推）
+    run(["git", "tag", "-d", "v" + version], cwd=repo)
+    run(["git", "tag", "v" + version], cwd=repo)
+    print("  ✓ 补全已 fold 进 release 提交，tag 已同步重打")
+
+
+def free_the_port(entry_env):
+    """doctor/冒烟要起的二进制绑 JMS_HTTP_ADDR——残留进程占着端口时整条
+    链假红（0.14.2 实录）。发版前清掉那个端口上的 leftovers。"""
+    addr = (entry_env or {}).get("JMS_HTTP_ADDR", "")
+    port = addr.rsplit(":", 1)[-1] if ":" in addr else ""
+    if not port.isdigit():
+        return
+    import subprocess as sp
+    p = sp.run(["lsof", "-ti", ":" + port], capture_output=True, text=True)
+    pids = [x for x in p.stdout.split() if x.isdigit()]
+    if pids:
+        print(f"  ⚠️ 端口 {port} 有 {len(pids)} 个残留进程（上一轮 doctor/冒烟的）——清理")
+        sp.run(["kill", "-9"] + pids, capture_output=True)
+
+
 def pre_push_checks(repo, which):
     """push 前的自检：--doctor（真 koko 登录）+ 本地 bin 冒烟。
 
@@ -446,11 +500,15 @@ def main():
            (f"：底座抬 {kit}" if kit else ""))
     tag(repo, version)
     build(repo)
+    offline_build_check(repo, version)
     # push 前自检（doctor + 本地 bin 冒烟）：失败时 tag 还只在本地。
+    entry = mcp_entry(MCP_SERVER_NAME[which])
+    free_the_port(entry.get("env", {}))
     pre_push_checks(repo, which)
     push(repo, version)
     binary = publish(repo)
     entry = repoint_mcp_config(MCP_SERVER_NAME[which], binary)
+    free_the_port(entry.get("env", {}))
     smoke(MCP_SERVER_NAME[which], entry, which, label="运行时目录复验")
 
     want = TOOL_COUNT[which]
