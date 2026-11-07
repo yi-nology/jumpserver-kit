@@ -26,14 +26,14 @@ require (
 	github.com/cloudwego/kitex v0.16.4
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/oagentkit/guardx v0.19.0
+	github.com/oagentkit/guardx v0.23.0
 	github.com/oagentkit/tools v0.12.0
 	github.com/oekit/bootstrap v0.6.8
 	github.com/oekit/concurrency v0.25.1
 	github.com/oekit/core v0.12.2
 	github.com/oekit/kitex v0.7.6
 	github.com/oekit/logx v0.8.3
-	github.com/oekit/pkg v0.34.1
+	github.com/oekit/pkg v0.37.1
 	github.com/pquerna/otp v1.5.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1

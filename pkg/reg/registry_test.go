@@ -359,8 +359,13 @@ func TestAnAnswerThatBreaksItsContractIsAFailedCall(t *testing.T) {
 	if got[0].Gate.Err == nil {
 		t.Error("the record does not carry the failure")
 	}
-	if got[0].Gate.Allowed {
-		t.Error("the record says the call was allowed; it failed")
+	// ⚠️ Allowed 是「门禁放行」的到达事实，不是「调用成功」：guardx v0.20
+	// 把 Allowed 改为到达即置位（上游 #67/68/73 的修复）⇒ 契约破坏这类
+	//「放行后失败」的调用 Allowed 恒真，失败由 Err 承载。留痕侧读的是
+	// audit.allowed() = Allowed && Acted()（失败调用在 toolFailed 处短路），
+	// 所以这一语义变化不改变留痕的判定——只改这条钉的形状。
+	if !got[0].Gate.Allowed {
+		t.Error("the gate DID let the call through; the failure is downstream of the gate (arrival-set Allowed, guardx v0.20+)")
 	}
 }
 

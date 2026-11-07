@@ -547,6 +547,8 @@ github.com/oagentkit/guardx v0.18.0 h1:VRTqhiN2w9UmCltLkkYF3r1Ct02TR5OlxMEKYiFzF
 github.com/oagentkit/guardx v0.18.0/go.mod h1:bEbMvf2X5hHNg/LbdZu9tcc076RCSEKFONlpw0cGba4=
 github.com/oagentkit/guardx v0.19.0 h1:v5FWk9H1ZMBWFz94DtzWRg55TYljA8IYOOGtVhKS7Ko=
 github.com/oagentkit/guardx v0.19.0/go.mod h1:bEbMvf2X5hHNg/LbdZu9tcc076RCSEKFONlpw0cGba4=
+github.com/oagentkit/guardx v0.23.0 h1:SjIap+2DMubW7aiHRWrXaYfbyXM/KJ1ZUb6bCR0u5hc=
+github.com/oagentkit/guardx v0.23.0/go.mod h1:oK7fZ+RbhDfQMjUUTHFUQet1jkcEnBgnHiNyaPqU/AM=
 github.com/oagentkit/runtime v0.8.0 h1:N99lZJegdttQpIMGG4bTvWaZRRP7u2fr9xS2IzaxecU=
 github.com/oagentkit/runtime v0.8.0/go.mod h1:jiJELmEGZ1rYaNNxKX94mWxK83Hm1T7wlcuqR3ZFED0=
 github.com/oagentkit/textx v0.9.0 h1:b3YQZvR4uE/wFJwGwqfY6j0oNc7CY2UU15zZpNfmJPk=
@@ -581,6 +583,8 @@ github.com/oekit/pkg v0.33.0 h1:/+r5Ion6dywSNMTC4JpdammsDNYUzwIzdhBllLFpgV4=
 github.com/oekit/pkg v0.33.0/go.mod h1:sVeOtmG1sLY2aSnzFIbUAF2Qoh7G8R5vnWtWmLCv8NM=
 github.com/oekit/pkg v0.34.1 h1:F+jDaHm7qDIeMvELrjUv2yGqJPOG3Qg5UL5VUjpojbU=
 github.com/oekit/pkg v0.34.1/go.mod h1:sVeOtmG1sLY2aSnzFIbUAF2Qoh7G8R5vnWtWmLCv8NM=
+github.com/oekit/pkg v0.37.1 h1:Hq8FJnTtKNTyJ5gNFUl9ORQkM3WwzSriOHnUmF9bbyA=
+github.com/oekit/pkg v0.37.1/go.mod h1:sVeOtmG1sLY2aSnzFIbUAF2Qoh7G8R5vnWtWmLCv8NM=
 github.com/oekit/registry v0.5.3 h1:eCjI020ffKDpO9HXD84RfvVrT8IimxBC4h8dwGk0Euo=
 github.com/oekit/registry v0.5.3/go.mod h1:LKXbr6BXyweETTFCSPPIoqvRiZQO/3+OLscTsKT6HdE=
 github.com/oekit/registry/nacos v0.1.3 h1:BxGdcktNeRzvoVU+xPi2ZXdyo6eBu2nwyMsE7JdVr0Q=
