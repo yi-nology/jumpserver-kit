@@ -96,6 +96,11 @@ def make_copy():
         for r in COPY_ROOTS:
             f.write("\t./" + os.path.basename(r) + "\n")
         f.write(")\n")
+    # 工作区把三仓的 require 并成一张 MVS 图 ⇒ go.work.sum 必须盖住全集，
+    # 否则副本里的离线构建（GOPROXY=off）在底座抬了地板的版本上编译失败
+    # （2026-11-07 实录：guardx v0.23/oekit v0.37 让 version-guard 的 canary
+    # 编译失败、整轮数字作废）。
+    subprocess.run(["go", "work", "sync"], cwd=WS, check=True)
 
 
 def write_in(repo, relpath, content):

@@ -694,7 +694,10 @@ mut("名字过滤失效", {f"{A}/file.go": file.replace(
 
 mut("词表漏掉 authorization", {f"{R}/redact.go": redact.replace(
     "\"authorization\", ", "")},
-    "TestTheCredentialWordList", "./pkg/redact/")
+    "TestRedactSecretsMasksTheJSONForm", "./biz/handler/")
+# ⚠️ 目标测试在**管理面**：authorization 对 kit 自己的刷洗路径是冗余（上游
+# v0.23 词表覆盖），但对管理面的审计脱敏是承重（按名问 IsCredentialKey、
+# 路径不过上游——kit#12 部分回退的教训）。变异要打在承重的那一侧。
 
 
 # ---- 「只洗一次」这个不变量本身 --------------------------------------------
