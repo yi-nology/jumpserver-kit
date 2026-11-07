@@ -413,16 +413,22 @@ def pre_push_checks(repo, which):
     #（脚本不碰凭据，只复用配置里已有的）——doctor 尤其需要：没有 JMS_*
     # 环境就报「bastion not set」，那不是真红，是本机配置的形状。
     entry = mcp_entry(MCP_SERVER_NAME[which])
+    # doctor 与冒烟走 stdio：HTTP 面（JMS_HTTP_ADDR）与它们无关，却会让进程
+    # 常驻监听——带着它跑完 doctor，端口就被 doctor 自己占着，紧随的冒烟
+    # 必撞「address already in use」（0.14.2/0.14.3/0.14.4 三连实录）。
+    # 剥掉这两个 HTTP 面变量再跑。
+    plain_env = {k: v for k, v in entry.get("env", {}).items()
+                 if k not in ("JMS_HTTP_ADDR", "JMS_HTTP_TOKEN")}
     if "--no-doctor" not in sys.argv:
         step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
         import subprocess as sp
         p = sp.run([binary, "--doctor"], cwd=repo,
-                   env={**os.environ, **entry.get("env", {})})
+                   env={**os.environ, **plain_env})
         if p.returncode != 0 and not DRY:
             raise SystemExit(f"❌ --doctor 退出码 {p.returncode}，链停住（tag 还在本地，可撤）。")
     else:
         print("  - --no-doctor：跳过 doctor")
-    local_entry = {"command": binary, "env": entry.get("env", {})}
+    local_entry = {"command": binary, "env": plain_env}
     smoke(MCP_SERVER_NAME[which], local_entry, which, label="本地 bin（push 前）")
 
 
