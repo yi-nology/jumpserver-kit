@@ -119,6 +119,19 @@ def make_copy():
     # （2026-11-07 实录：guardx v0.23/oekit v0.37 让 version-guard 的 canary
     # 编译失败、整轮数字作废）。
     subprocess.run(["go", "work", "sync"], cwd=WS, check=True)
+    # ⚠️ go work sync 会把工作区并集构建清单**写回各成员的 go.mod**（它的
+    # 本职）⇒ 副本的 go.mod/go.sum 与真仓不再逐字节相同 ⇒ 收尾的「真仓未被
+    # 触碰」逐字节核对误报。构建清单的信息已经落在 go.work.sum 与 module
+    # cache 里，测试又是 -mod=readonly 跑的 ⇒ 把副本的 go.mod/go.sum 按真仓
+    # 原样恢复，两边都满足。
+    for src, dst in zip(ROOTS, COPY_ROOTS):
+        for name in ("go.mod", "go.sum", "go.work", "go.work.sum"):
+            a = os.path.join(src, name)
+            b = os.path.join(dst, name)
+            if os.path.exists(a):
+                shutil.copy2(a, b)
+            elif os.path.exists(b):
+                os.remove(b)
 
 
 def write_in(repo, relpath, content):
