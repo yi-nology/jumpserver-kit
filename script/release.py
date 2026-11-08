@@ -154,6 +154,17 @@ def bump_kit_require(repo, kit_version):
                  rf"\g<1>{kit_version}", "go.mod 的 kit require")
     run(["go", "mod", "download", "github.com/yi-nology/jumpserver-kit"],
         cwd=repo, env={**os.environ, "GOWORK": "off"})
+    # download 后立即校验哈希真的落盘（issue #18）：go.work 存在时 download
+    # 会静默跳过主模块依赖，goproxy 超时/流错误（0.14.1 实录 stream error）
+    # 会让 download 静默半途——两条路的结局都是 go.sum 缺 h1，等到发版中段
+    # 的离线构建才炸。发现点前移到抬 require 的当下：缺了直接停，重跑即可。
+    if not DRY:
+        needle = f"github.com/yi-nology/jumpserver-kit {kit_version} h1:"
+        body = open(os.path.join(repo, "go.sum"), encoding="utf-8").read()
+        if needle not in body:
+            raise SystemExit(
+                f"❌ download 后 go.sum 里没有「{needle}」——内容哈希没落盘"
+                f"（网络抖动，重跑；go.work 存在时确认这一步是 GOWORK=off 跑的）。")
     replace_once(os.path.join(repo, "script/restore-go-modcache.sh"),
                  r'github\.com/yi-nology/jumpserver-kit@v\d+\.\d+\.\d+',
                  f"github.com/yi-nology/jumpserver-kit@{kit_version}",
