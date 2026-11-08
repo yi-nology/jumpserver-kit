@@ -19,6 +19,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# ⚠️ 跨仓防呆：脚本按自身位置定位 ROOT——从**别的仓**目录调用会静默生成
+# kit 自己的模型（2026-11-07 实录：在 mgmt 目录里跑，idl/jms 被生成、
+# 正常退出、一声不吭——最坏的失败模式是「看起来成功了」）。cwd 不在
+# ROOT 之下时拒绝执行。
+case "$(pwd)/" in
+  "${ROOT}/"*) ;;            # 在本仓内（含仓根）：放行
+  *) echo "❌ 这个脚本会操作 ${ROOT} 的 IDL——请在目标仓目录里跑：" >&2
+     echo "    cd ${ROOT} && ./script/gen-idl.sh" >&2
+     exit 1 ;;
+esac
+
 # -r 不是可选项：一份 IDL 按域拆成同目录多份 thrift（入口 <包名>.thrift
 # include 各域文件），没有 -r 时 thriftgo 只生成入口那份 —— 各域声明的类型
 # 一个生成物都没有，包根本编不过。
