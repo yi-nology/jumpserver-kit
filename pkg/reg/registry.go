@@ -382,28 +382,35 @@ func call[In any](
 		func(ctx context.Context, c invoke.Call) (invoke.Result, error) {
 			res, value, err := fn(ctx, req, in)
 			if err != nil {
-				// ⚠️ The outcome is DROPPED here. Upstream v0.16.0 does
-				// keep the body's own conclusion on the error path — it
-				// copies `res.Outcome` into the record BEFORE it looks at
-				// the error — but this handler returns a ZERO Result on
-				// that path, so there is no outcome to copy.
-				//
-				// Nothing in this repository refuses that way today (every
-				// refusal answers with a `blocked` field), so nothing is
-				// broken by it — but a tool that starts refusing with an
-				// error will be missing from `refused=` in the trail, and
-				// the capability upstream offers would have to be used
-				// (return a Result that carries the Outcome alongside the
-				// error) for it to be recorded at all.
-				//
-				// The DELIVERY state, on the other hand, does come through
-				// here: the error may know how far the action got, and
-				// that is the one fact the trail cannot work out for
-				// itself.
+				// The DELIVERY state comes through here: the error may know
+				// how far the action got, and that is the one fact the trail
+				// cannot work out for itself.
 				if d := DeliveryOf(err); d != jms.Delivery(0) {
 					facts.delivery = d.String()
 				}
-				return invoke.Result{}, err
+				// ⚠️ The outcome is NOT dropped on the error path any more
+				// (issue #16). guardx's chain keeps the body's own conclusion
+				// when the call closes with an error — Do copies `res.Outcome`
+				// into the record BEFORE it looks at the error — but this
+				// handler used to return a ZERO Result on that path, so there
+				// was no outcome to copy and a tool that refused WITH an error
+				// went missing from `refused=` in the trail.
+				//
+				// Nothing in this repository refuses that way today (every
+				// refusal answers with a `blocked` field and a nil error), so
+				// the path is a forward-compatibility seam, exercised by the
+				// test below and not by production tools: if a tool starts
+				// answering (result, answer, error) — a verdict AND a failure —
+				// the verdict reaches the trail instead of being silently
+				// rewritten as "acted".
+				result := invoke.Result{}
+				if res != nil {
+					facts.outcome = render.OutcomeOf(value)
+					if facts.outcome != nil {
+						result.Outcome = &facts.outcome.Outcome
+					}
+				}
+				return result, err
 			}
 			if res == nil {
 				return invoke.Result{}, fmt.Errorf("tool %s produced no result", name)

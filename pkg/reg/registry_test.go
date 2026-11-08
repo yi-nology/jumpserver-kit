@@ -3,6 +3,7 @@ package reg
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -220,6 +221,61 @@ func TestAFailedCallIsRecordedAsFailed(t *testing.T) {
 	}
 	if !strings.Contains(got[0].ToolError, "died half way") {
 		t.Errorf("the record does not carry the failure text: %q", got[0].ToolError)
+	}
+}
+
+// A tool that answers with a verdict AND an error — (result, answer, error) —
+// must have its verdict recorded.
+//
+// The chain keeps the body's own conclusion on the error path (guardx copies
+// res.Outcome into the record BEFORE it looks at the error), but the handler
+// used to return a ZERO Result there, so there was nothing to copy: a tool
+// that starts refusing with an error would be missing from `refused=` in the
+// trail, silently rewritten as "acted". No production tool refuses that way
+// today — that is exactly why this is pinned HERE: the future shape has to
+// find the seam already in place (issue #16).
+func TestAnErrorCallKeepsItsDeclaredOutcome(t *testing.T) {
+	var got []Record
+	r := newTestRegistry(t, Options{
+		Policy: PolicyTable{"jmsx_exec": {Risk: jms.Risk_read}},
+		OnRecord: func(rec Record) {
+			got = append(got, rec)
+		},
+	})
+	type verdict struct {
+		Blocked string `json:"blocked,omitempty"`
+	}
+	Add(r, &mcp.Tool{
+		Name:        "jmsx_exec",
+		Description: "a tool that refuses with an error, not with a blocked field alone",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args echoArgs) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{}, verdict{Blocked: "the machine is in maintenance"},
+			fmt.Errorf("the command was not sent")
+	})
+
+	res := callToolFull(t, r, "jmsx_exec", map[string]any{})
+	if !res.IsError {
+		t.Fatal("the agent got a normal answer for a failed call")
+	}
+	if len(got) != 1 {
+		t.Fatalf("the gate recorded %d calls, want 1", len(got))
+	}
+	rec := got[0]
+	if rec.Gate.Err == nil {
+		t.Error("the record does not carry the failure")
+	}
+	if rec.Gate.Outcome == nil {
+		t.Fatal("the trail dropped the verdict declared alongside the error")
+	}
+	if rec.Gate.Outcome.Refused != "the machine is in maintenance" {
+		t.Errorf("the trail says refused=%q, want the tool's own verdict",
+			rec.Gate.Outcome.Refused)
+	}
+	if !rec.Gate.Refused() {
+		t.Error("the record does not read as refused; the call would be audited as acted")
+	}
+	if rec.WouldExecute != nil {
+		t.Errorf("the record claims would_execute=%v; the answer does not say", *rec.WouldExecute)
 	}
 }
 
