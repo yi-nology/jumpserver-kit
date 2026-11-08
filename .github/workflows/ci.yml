@@ -214,8 +214,31 @@ jobs:
         working-directory: kit
         # 逐个跑、任何一个非零即红；每个脚本先跑 canary 自证 overlay 生效，
         # 所以「全绿」不是「没跑成」——canary 红了那一轮直接不算数。
+        # ⚠️ 路径 → 脚本映射精细到脚本级：改 pkg/risk 不必陪跑六个脚本
+        # （kit#19）。守卫没变的那类 push 由上面的 filter 拦，这里拦「变了
+        # 但只变了一个守卫」的情况。tag 全量跑（发版即全量验证）。
         run: |
-          for s in script/mutate-*.py; do
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            scripts="script/mutate-*.py"
+          else
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              RANGE="${{ github.event.pull_request.base.sha }}..HEAD"
+            else
+              RANGE="${{ github.event.before }}..HEAD"
+            fi
+            changed=$(git diff --name-only "$RANGE" 2>/dev/null) || changed=""
+            scripts=""
+            add() { case " $scripts " in *" $1 "*) ;; *) scripts="$scripts $1"; esac; }
+            echo "$changed" | grep -qE 'pkg/(arch|contractscan)/|mutate-naming' && add script/mutate-naming-guard.py
+            echo "$changed" | grep -qE 'pkg/risk/|mutate-version|pkg/jmsapi/' && add script/mutate-version-guard.py
+            echo "$changed" | grep -qE 'pkg/audit/|pkg/redact/|mutate-credential|mutate-audit' && { add script/mutate-audit.py; add script/mutate-credential-guard.py; }
+            echo "$changed" | grep -qE 'pkg/reg/|pkg/render/|mutate-primitive' && add script/mutate-primitive-guards.py
+            echo "$changed" | grep -qE 'pkg/rpcapi|pkg/faces|mutate-rpc' && add script/mutate-rpc-face.py
+            echo "$changed" | grep -qE 'cmd/|mutate-entry' && add script/mutate-entry-layer.py
+            scripts="$(echo $scripts | xargs)"
+            [ -z "$scripts" ] && { echo "no mutation script covers the changed paths — skipping"; exit 0; }
+          fi
+          for s in $scripts; do
             echo "=== $s ==="
             python3 "$s" || exit 1
           done

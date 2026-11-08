@@ -154,6 +154,13 @@ def bump_kit_require(repo, kit_version):
                  rf"\g<1>{kit_version}", "go.mod 的 kit require")
     run(["go", "mod", "download", "github.com/yi-nology/jumpserver-kit"],
         cwd=repo, env={**os.environ, "GOWORK": "off"})
+    # download 会静默半途（goproxy 流错误实录）⇒ 立刻校验内容哈希真的
+    # 落了盘，把发现点从发版中段（offline_build_check）提到抬 require 的
+    # 当下——越早发现，重跑的成本越低。
+    wanted = f"github.com/yi-nology/jumpserver-kit {kit_version} h1:"
+    if wanted not in open(os.path.join(repo, "go.sum"), encoding="utf-8").read():
+        raise SystemExit(f"❌ go.mod 要求 {kit_version} 但 go.sum 里没有它的 h1 内容哈希"
+                         "（网络抖动静默半途？）——重跑本命令。")
     replace_once(os.path.join(repo, "script/restore-go-modcache.sh"),
                  r'github\.com/yi-nology/jumpserver-kit@v\d+\.\d+\.\d+',
                  f"github.com/yi-nology/jumpserver-kit@{kit_version}",
@@ -391,6 +398,9 @@ def free_the_port(entry_env):
     port = addr.rsplit(":", 1)[-1] if ":" in addr else ""
     if not port.isdigit():
         return
+    if DRY:
+        print(f"  (--dry 不动端口 {port}；真跑时会清理其上的残留进程)")
+        return
     import subprocess as sp
     p = sp.run(["lsof", "-ti", ":" + port], capture_output=True, text=True)
     pids = [x for x in p.stdout.split() if x.isdigit()]
@@ -419,6 +429,14 @@ def pre_push_checks(repo, which):
     # 剥掉这两个 HTTP 面变量再跑。
     plain_env = {k: v for k, v in entry.get("env", {}).items()
                  if k not in ("JMS_HTTP_ADDR", "JMS_HTTP_TOKEN")}
+    # --dry 也要把「注入面」亮出来：doctor/冒烟会用哪些键、缺了哪些——
+    # 缺失键在真跑时才 WARN（delegation secret 这类）就太晚。
+    env_keys = sorted(entry.get("env", {}).keys())
+    missing = [k for k in ("JMS_BASTION_HOST", "JMS_KOKO_USER", "JMS_KOKO_KEY",
+                           "JUMPSERVER_URL", "JUMPSERVER_TOKEN") if k not in env_keys]
+    print(f"  注入 env 键：{', '.join(env_keys) if env_keys else '（无）'}")
+    if missing:
+        print(f"  ⚠️ mcp.json 缺这些键：{', '.join(missing)}（doctor 会因此报 FAIL/WARN）")
     if "--no-doctor" not in sys.argv:
         step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
         import subprocess as sp

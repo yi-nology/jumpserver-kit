@@ -1,6 +1,7 @@
 package reg
 
 import (
+	"fmt"
 	"context"
 	"encoding/json"
 	"strings"
@@ -674,5 +675,46 @@ func TestAValueThatLooksLikeAPathIsNotTakenForOne(t *testing.T) {
 	}
 	if strings.Contains(reason, "secret") {
 		t.Errorf("the line writes down a fragment of the value: %q", reason)
+	}
+}
+
+// A tool that refuses WITH an error (Result.IsError + an answer carrying a
+// verdict) must reach the trail's refused column — guardx v0.16+ keeps the
+// conclusion on the error path, and kit#16 wired the handler to read it.
+// Without this pin the blind spot is silent: nothing refuses that way
+// today, so a regression would ship invisibly.
+type refusalShape struct {
+	Blocked string `json:"blocked,omitempty"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+}
+
+func TestAnErrorResultCarryingAVerdictReachesTheTrail(t *testing.T) {
+	var got []Record
+	r := newTestRegistry(t, Options{
+		Policy: PolicyTable{"jmsx_inventory": {Risk: jms.Risk_write, Conditional: true}},
+		OnRecord: func(rec Record) {
+			got = append(got, rec)
+		},
+	})
+	Add(r, &mcp.Tool{
+		Name:         "jmsx_inventory",
+		Description:  "a tool that refuses with an error result",
+		OutputSchema: render.Schema[refusalShape](),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args echoArgs) (*mcp.CallToolResult, any, error) {
+		ans := refusalShape{Blocked: "classified DANGEROUS; re-call with confirm=true", DryRun: true}
+		res := &mcp.CallToolResult{IsError: true}
+		render.FillRehearsal(&ans, "DANGEROUS", false, ans.Blocked, "")
+		return res, &ans, fmt.Errorf("tool refused")
+	})
+
+	res := callToolFull(t, r, "jmsx_inventory", map[string]any{})
+	if !res.IsError {
+		t.Fatal("the agent got a normal answer for an error result")
+	}
+	if len(got) != 1 {
+		t.Fatalf("the gate recorded %d calls, want 1", len(got))
+	}
+	if got[0].Gate.Outcome == nil || got[0].Gate.Outcome.Refused == "" {
+		t.Errorf("the trail does not say refused — the error path dropped the outcome")
 	}
 }

@@ -152,11 +152,22 @@ func classify(cmd string, depth int) jms.CommandClass {
 	// A redirect into a device file is the same write as `dd of=/dev/sda`,
 	// which the table catches — `cat img > /dev/sda` sailed past it until
 	// the walk looked at Stmt.Redirects (measured 2026-11-06).
-	if dangerousRedirect(cmd) {
+	if dangerousRedirect(parsed(cmd)) {
 		return jms.CommandClass_DANGEROUS
 	}
 	// It writes something, but nothing we know how to call irreversible.
 	return jms.CommandClass_MODIFY
+}
+
+// parsed is the command's AST, or nil when it does not parse. classify's
+// two consumers (dangerousRedirect here, upstream's Analyze inside
+// bashguard) used to parse the same text twice — one parse, two readers.
+func parsed(cmd string) *syntax.File {
+	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return nil
+	}
+	return f
 }
 
 // dangerousRedirect reports whether the command aims an output redirect at
@@ -167,9 +178,8 @@ func classify(cmd string, depth int) jms.CommandClass {
 // only shows up on the statement's Redirects, which Invocations never
 // carried. /dev/null is excluded: discarding output is the everyday case,
 // and /dev/zero discards writes the same way.
-func dangerousRedirect(cmd string) bool {
-	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
-	if err != nil {
+func dangerousRedirect(f *syntax.File) bool {
+	if f == nil {
 		return false
 	}
 	found := false

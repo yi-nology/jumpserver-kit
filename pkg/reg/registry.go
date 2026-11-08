@@ -403,6 +403,20 @@ func call[In any](
 				if d := DeliveryOf(err); d != jms.Delivery(0) {
 					facts.delivery = d.String()
 				}
+				// guardx v0.16+ supports carrying the conclusion alongside
+				// the error (Result.Outcome survives the error path into
+				// the record). The answer value may still declare a verdict
+				// even though the call failed — a tool that refuses WITH an
+				// error must reach the trail's `refused=` column, so the
+				// outcome is read here too, exactly as on the success path.
+				if res != nil {
+					if oc := render.OutcomeOf(value); oc != nil {
+						facts.outcome = oc
+						result := invoke.Result{Text: render.ResultText(res)}
+						result.Outcome = &oc.Outcome
+						return result, err
+					}
+				}
 				return invoke.Result{}, err
 			}
 			if res == nil {
