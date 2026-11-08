@@ -386,10 +386,17 @@ def offline_build_check(repo, version):
 
 def free_the_port(entry_env):
     """doctor/冒烟要起的二进制绑 JMS_HTTP_ADDR——残留进程占着端口时整条
-    链假红（0.14.2 实录）。发版前清掉那个端口上的 leftovers。"""
+    链假红（0.14.2 实录）。发版前清掉那个端口上的 leftovers。
+
+    --dry 只看步骤不动手（issue #13）：这里只打印「将杀 PID/port」，
+    不真 lsof、不真 kill——dry 的预览者可能恰好有开发进程占着这个端口，
+    预览一趟把人家的进程杀了，DRY 的语义就破了。"""
     addr = (entry_env or {}).get("JMS_HTTP_ADDR", "")
     port = addr.rsplit(":", 1)[-1] if ":" in addr else ""
     if not port.isdigit():
+        return
+    if DRY:
+        print(f"  [dry] 将清端口 {port} 上的残留进程（lsof -ti :{port} → kill -9）")
         return
     import subprocess as sp
     p = sp.run(["lsof", "-ti", ":" + port], capture_output=True, text=True)
