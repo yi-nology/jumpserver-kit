@@ -87,6 +87,13 @@ jobs:
             exit 1
           fi
 
+      # ⚠️ Python 守卫也有牙齿要自证：check_tool_docs 的前缀边界（other_
+      #   前缀不越权）钉在 --self-test 里，这里每次 CI 跑一遍——守卫悄悄
+      #   变哑的空间，不留给下一次人工验证的记忆。
+      - name: Script self-tests
+        working-directory: kit
+        run: python3 script/check_tool_docs.py --self-test
+
       - name: Download dependencies
         working-directory: kit
         run: go mod download
