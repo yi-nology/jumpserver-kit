@@ -308,7 +308,13 @@ def main():
         else:
             broken.append((name, detail))
             print(line + f"（{detail}）")
-    print(f"\n合计：{ok} 条变红，{len(fake)} 条仍绿，{len(broken)} 条无效。")
+    # 头行与其余变异脚本（audit / version-guard / credential-guard /
+    # entry-layer / naming）同形状（issue #19）：「N/N 个变异被**测试**
+    # 杀掉」，CI 汇总按这一行机械解析；stale 锚点不参与判定，括注另说。
+    total = len(usable)
+    stale_note = f"（另有 {len(STALE)} 条锚点无效，不参与判定）" if STALE else ""
+    print(f"\n{ok}/{total} 个变异被**测试**杀掉{stale_note}")
+    print(f"合计：{ok} 条变红，{len(fake)} 条仍绿，{len(broken)} 条无效。")
     if fake:
         print("❌ 假守卫：")
         for name, test in fake:

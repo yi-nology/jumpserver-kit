@@ -132,6 +132,11 @@ def main():
             green += 1
         else:
             broken += 1
+    # 头行与其余变异脚本（audit / version-guard / credential-guard /
+    # entry-layer / naming / primitive-guards）同形状（issue #19）：「N/N
+    # 个变异被**测试**杀掉」，CI 汇总按这一行机械解析。STALE 在上面已按
+    # 致命处理（exit 2），这里的分母就是全部变异。
+    print("\n%d/%d 个变异被**测试**杀掉" % (red, len(M)))
     print("\n合计：%d 红 / %d 仍绿 / %d 无效" % (red, green, broken))
     if green or broken or len(M) != red:
         sys.exit(1)

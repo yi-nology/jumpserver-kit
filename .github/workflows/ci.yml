@@ -138,26 +138,67 @@ jobs:
           path: kit
           persist-credentials: false
 
-      # ⚠️ 变异验证 15 分钟起步，但守卫没变时结果不可能变。只在动到守卫
-      #   相关路径时跑；tag 全量跑（发版即全量验证一次）。判断不出来的
-      #   情况（branch 创建、diff 失败）按「跑」处理——跳过必须是确信的。
-      - name: Decide whether the guards could have changed
+      # ⚠️ 变异验证 15 分钟起步，但守卫没变时结果不可能变。不止判「要不要
+      #   跑」，还判「哪些脚本受影响」（issue #19）：路径 → 脚本的映射在
+      #   下面 case 里，判据是各脚本的变异体与守卫测试的**真实落点**，不是
+      #   猜的（改 pkg/risk 只跑 primitive-guards，不再六个脚本全上）。tag
+      #   全量跑（发版即全量验证一次）；判断不出来的情况（branch 创建、
+      #   diff 失败、workflow 自身变化）按「全跑」处理——跳过必须是确信的。
+      - name: Decide whether the guards could have changed (and which sweeps)
         id: filter
         working-directory: kit
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          ALL="script/mutate-audit.py script/mutate-credential-guard.py script/mutate-entry-layer.py script/mutate-naming-guard.py script/mutate-primitive-guards.py script/mutate-rpc-face.py script/mutate-version-guard.py"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "scripts=$ALL" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}..HEAD"
           elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "scripts=$ALL" >> "$GITHUB_OUTPUT"; exit 0
           else
             RANGE="${{ github.event.before }}..HEAD"
           fi
-          changed=$(git diff --name-only "$RANGE" 2>/dev/null) || { echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; }
-          if echo "$changed" | grep -qE '(^|/)(pkg/arch|internal/arch|pkg/contractscan|pkg/reg|pkg/risk|pkg/audit|pkg/redact)/|script/mutate-|idl/|\.github/workflows/'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
+          changed=$(git diff --name-only "$RANGE" 2>/dev/null) || { echo "run=true" >> "$GITHUB_OUTPUT"; echo "scripts=$ALL" >> "$GITHUB_OUTPUT"; exit 0; }
+          scripts=""
+          add() { case " $scripts " in *" $1 "*) ;; *) scripts="$scripts $1" ;; esac; }
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              # 变异体的落点（谁被改、谁该被重验）
+              pkg/audit/*|pkg/redact/*|pkg/textx/*) add script/mutate-audit.py ;;
+              pkg/reg/*) add script/mutate-audit.py; add script/mutate-primitive-guards.py ;;
+              pkg/render/*|model/jms/*|pkg/risk/*|pkg/errs/*|pkg/httpapi/*|pkg/testsupport/*) add script/mutate-primitive-guards.py ;;
+              pkg/rpcapi/*|pkg/faces/*) add script/mutate-rpc-face.py ;;
+              # 守卫体/判据壳的落点（守卫自己的代码变了）
+              pkg/arch/*|internal/arch/*)
+                add script/mutate-naming-guard.py; add script/mutate-version-guard.py
+                add script/mutate-credential-guard.py; add script/mutate-entry-layer.py ;;
+              # 变异脚本自己变了：验它自己
+              script/mutate-audit.py) add script/mutate-audit.py ;;
+              script/mutate-credential-guard.py) add script/mutate-credential-guard.py ;;
+              script/mutate-entry-layer.py) add script/mutate-entry-layer.py ;;
+              script/mutate-naming-guard.py) add script/mutate-naming-guard.py ;;
+              script/mutate-primitive-guards.py) add script/mutate-primitive-guards.py ;;
+              script/mutate-rpc-face.py) add script/mutate-rpc-face.py ;;
+              script/mutate-version-guard.py) add script/mutate-version-guard.py ;;
+              # 工作集定义漂了，用它五个脚本都重验（naming/rpc-face 不 import 它）
+              script/workset.py)
+                add script/mutate-audit.py; add script/mutate-credential-guard.py
+                add script/mutate-entry-layer.py; add script/mutate-primitive-guards.py
+                add script/mutate-version-guard.py ;;
+              # 本映射就住在 workflow 里：workflow 变了按「全跑」处理
+              .github/workflows/*) for s in $ALL; do add "$s"; done ;;
+              *) ;; # 无命中：守卫语义不可能变——跳过正是这次要省的
+            esac
+          done <<< "$changed"
+          scripts="${scripts# }"
+          if [ -z "$scripts" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no guard-relevant path hit — mutations job skipped"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "scripts=$scripts" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout management plane
@@ -219,10 +260,11 @@ jobs:
       - name: Run mutation sweeps
         if: steps.filter.outputs.run == 'true'
         working-directory: kit
-        # 逐个跑、任何一个非零即红；每个脚本先跑 canary 自证 overlay 生效，
-        # 所以「全绿」不是「没跑成」——canary 红了那一轮直接不算数。
+        # 脚本清单由上面的路径映射给（issue #19），逐个跑、任何一个非零
+        # 即红；每个脚本先跑 canary 自证 overlay 生效，所以「全绿」不是
+        # 「没跑成」——canary 红了那一轮直接不算数。
         run: |
-          for s in script/mutate-*.py; do
+          for s in ${{ steps.filter.outputs.scripts }}; do
             echo "=== $s ==="
             python3 "$s" || exit 1
           done
