@@ -1,9 +1,9 @@
 package reg
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
