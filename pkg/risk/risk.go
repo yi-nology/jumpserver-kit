@@ -114,6 +114,16 @@ func classify(cmd string, depth int) jms.CommandClass {
 	if depth > 6 {
 		return jms.CommandClass_UNKNOWN
 	}
+	// ⚠️ 超长 ⇒ DANGEROUS（2026-11-09 实测的填充绕过，dry_run 验证）：
+	// bashguard 对 >MaxCommandLen 的命令拒绝判定（AllCalls/Invocations 全空）
+	// ⇒ 归 UNKNOWN ⇒ 不要求确认——而 `<10KB 注释填充>\n rm -rf /x` 恰好
+	// 撑过长度闸，确认门被无声绕过。一个 >10KB 的 agent 脚本正是「该让人
+	// 看一眼的东西」：拒绝判定的命令按 DANGEROUS 走（比例恰当，且判定
+	// 缺席本身就是风险信号）。上游 tools#80 会给 Decision 加 OverLength
+	// 标记，届时改为按标记判定。
+	if len(cmd) > bashguard.MaxCommandLen {
+		return jms.CommandClass_DANGEROUS
+	}
 	d := bashguard.Analyze(cmd, table())
 	if d.ReadOnly {
 		// The parser says this cannot write. That is the strongest

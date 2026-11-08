@@ -1,6 +1,9 @@
 package risk
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A destructive command does not become safe by being wrapped, substituted,
 // piped or eval'd. These cases all used to classify as MODIFY — the
@@ -38,6 +41,9 @@ func TestAWrappedDestructiveCommandIsStillDangerous(t *testing.T) {
 		"git push --force-with-lease origin main",
 		"cat disk.img > /dev/sda",
 		"./write.sh > /dev/mmcblk0",
+		// 填充绕过（2026-11-09 dry_run 实测）：>10KB 的注释把破坏性命令
+		// 撑进 bashguard 的长度拒绝路径 ⇒ 曾归 UNKNOWN 直接过门。
+		"# " + strings.Repeat("a", 11000) + "\nrm -rf /tmp/jmsx-bypass-target",
 	}
 	for _, c := range dangerous {
 		if got := Classify(c); got.String() != "DANGEROUS" {
