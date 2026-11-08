@@ -111,3 +111,42 @@ func TestUnparsableCommandIsNotReadOnly(t *testing.T) {
 		t.Error("a blank command must not be READ")
 	}
 }
+
+// The redirect check's cheap precondition must not change a single verdict
+// (issue #17): every write redirect operator contains '>' and every input
+// operator this check ignores does not, so a command with no '>' byte can
+// never produce a counted redirect — skipping the parse is equivalence, not
+// an approximation. These pins walk the boundary of that claim.
+func TestDangerousRedirectFastPathChangesNoVerdict(t *testing.T) {
+	// Writes at device files stay DANGEROUS through the redirect spelling —
+	// the cases that would break if the precondition were wrong in the
+	// "skips a redirect it should have seen" direction.
+	for _, c := range []string{
+		"cat disk.img > /dev/sda",
+		"./write.sh > /dev/mmcblk0",
+		"grep x log >> /dev/vdb",
+		"make 2>/dev/null > /dev/sdf",
+	} {
+		if got := Classify(c); got != jms.CommandClass_DANGEROUS {
+			t.Errorf("Classify(%q) = %s, want DANGEROUS (the redirect must still be seen)", c, got)
+		}
+	}
+	// No '>' byte anywhere: the second parse is skipped, and the answer is
+	// the same "no counted redirect" the full walk would give — including
+	// the cases whose danger comes from the COMMAND, not a redirect.
+	for _, c := range []string{
+		"dd if=/dev/zero of=/dev/sda", // dangerous by name, not by redirect
+		"mkfs.ext4 /dev/sdb1",
+		"touch /tmp/notes",
+		"mkdir -p /tmp/a/b",
+	} {
+		if dangerousRedirect(c) {
+			t.Errorf("dangerousRedirect(%q) = true, want false", c)
+		}
+	}
+	// A device PATH in the arguments is not a redirect target: even with a
+	// '>' present, an ordinary write stays MODIFY.
+	if got := Classify("cp /etc/hosts /dev/null-copy"); got != jms.CommandClass_MODIFY {
+		t.Errorf("Classify(cp … /dev/null-copy) = %s, want MODIFY", got)
+	}
+}

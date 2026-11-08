@@ -167,7 +167,24 @@ func classify(cmd string, depth int) jms.CommandClass {
 // only shows up on the statement's Redirects, which Invocations never
 // carried. /dev/null is excluded: discarding output is the everyday case,
 // and /dev/zero discards writes the same way.
+//
+// Parse count (issue #17): bashguard.Analyze parses this same command text
+// internally, and this check parses it again — the honest 2→1 wants the
+// parsed AST shared, which bashguard (oagentkit/tools v0.12.0) does not
+// expose yet (`Analyze(cmdStr, *Table) Decision` is the only entry point;
+// Decision carries flattened calls, not the file). Parsing up front HERE and
+// handing it to both would make every READ command parse twice, so the
+// integration-side shape is the opposite: this check runs last, on MODIFY
+// candidates only, and the '>' precondition below lets a command without a
+// single redirect operator skip the second parse entirely. Every write
+// redirect operator (`>`, `>>`, `>|`, `&>`, `&>>`, `>&`) contains '>', and
+// the input operators this check ignores (`<`, `<<`, `<&`) do not — so a
+// command with no '>' byte can never produce a counted redirect, and
+// skipping the parse is exactly equivalent, not an approximation.
 func dangerousRedirect(cmd string) bool {
+	if !strings.ContainsRune(cmd, '>') {
+		return false
+	}
 	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
 	if err != nil {
 		return false
