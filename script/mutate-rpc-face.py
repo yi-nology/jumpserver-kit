@@ -121,6 +121,7 @@ def main():
             print("   %r 命中 %s 处" % (what, n))
         sys.exit(2)
     red = green = broken = stale = 0
+    red_names = []
     for name, files, test, pkg in M:
         verdict, why = run_one(name, files, test, pkg)
         mark = {"red": "✅ 变红（守卫是真的）", "green": "❌ 仍绿（守卫是假的）",
@@ -128,11 +129,15 @@ def main():
         print("%-44s %s %s" % (name, mark, why if why else ""))
         if verdict == "red":
             red += 1
+            red_names.append(name)
         elif verdict == "green":
             green += 1
         else:
             broken += 1
     print("\n合计：%d 红 / %d 仍绿 / %d 无效" % (red, green, broken))
+    # 统一输出契约（kit#22）：与其余 mutate-* 脚本同形。
+    survivors = [n for n in [e[0] for e in M] if n not in red_names]
+    print(f"MUTATIONS: killed={red} total={len(M)} survivors={' '.join(survivors) if survivors else 'none'}")
     if green or broken or len(M) != red:
         sys.exit(1)
 

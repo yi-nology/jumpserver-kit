@@ -317,6 +317,12 @@ def main():
         print("⚠️  无效变异（先修它们再说结论）：")
         for name, detail in broken:
             print(f"   {name}: {detail.splitlines()[0] if detail else ''}")
+    # 统一输出契约（kit#22）：CI/汇总用这一行做机械判读，
+    # 与其余 mutate-* 脚本同形。
+    total = len(M)
+    killed = total - len(fake) - len(broken)
+    survivors = [n for n, _ in fake]
+    print(f"MUTATIONS: killed={killed} total={total} survivors={' '.join(survivors) if survivors else 'none'}")
     return 1 if fake or broken else 0
 
 
