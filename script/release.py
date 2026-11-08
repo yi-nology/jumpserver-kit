@@ -184,7 +184,13 @@ def regen_openapi(repo):
 def commit(repo, message):
     step("提交")
     git(repo, "add", "-A")
-    git(repo, "commit", "-m", message)
+    # 重跑场景：前一轮停在 push 之后某步、改动已提交 ⇒ 这里无事可做，
+    # 「nothing to commit」是就位不是失败——继续（tag/构建在后面照走）。
+    p = subprocess.run(["git", "commit", "-m", message], cwd=repo,
+                       capture_output=True, text=True)
+    if p.returncode != 0 and "nothing to commit" not in (p.stdout + p.stderr):
+        raise SystemExit(f"❌ git commit 失败：\n{(p.stdout + p.stderr)[-500:]}")
+    print("  ✓ 提交就位" if p.returncode == 0 else "  ✓ 无新改动（前一轮已提交），继续")
 
 
 def tag(repo, version):
