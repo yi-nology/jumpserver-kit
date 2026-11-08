@@ -318,6 +318,16 @@ def repoint_mcp_config(server_name, binary_path):
 
 BIN_NAME = {"exec": "jumpserver-exec", "mgmt": "jumpserver-mgmt"}
 
+# doctor/冒烟期望的凭据 env 键（按面，来自各面 --doctor 自己的判据）：
+# 缺失不阻断（无堡垒机网络/凭据的机器本来就能 --no-doctor 发版），但要在
+# 注入前预警——真跑时 doctor 才 WARN，发现点太晚（issue #14）。
+EXPECTED_ENV_KEYS = {
+    "exec": ("JMS_BASTION_HOST", "JMS_KOKO_USER", "JMS_KOKO_KEY",
+             "JMS_DELEGATION_SECRET"),
+    "mgmt": ("JMS_DELEGATION_SECRET", "JMS_DELEGATION_USER_ID",
+             "JMS_DELEGATION_ORG_ID"),
+}
+
 
 def mcp_entry(server_name):
     """mcp.json 里该 server 的配置块（command/env 都在里面）。"""
@@ -426,6 +436,15 @@ def pre_push_checks(repo, which):
     # 剥掉这两个 HTTP 面变量再跑。
     plain_env = {k: v for k, v in entry.get("env", {}).items()
                  if k not in ("JMS_HTTP_ADDR", "JMS_HTTP_TOKEN")}
+    # 注入面预览（issue #14）：doctor/冒烟用哪些 env 键，键名、不含值——
+    # --dry 的预览输出里必须看得见「发版会注入什么」，否则核对不了注入面；
+    # 真跑时这行同样是 doctor 前的最后声明。缺期望键当场预警。
+    print("  将注入 env 键（值不打印）："
+          + (", ".join(sorted(plain_env)) if plain_env else "（无）"))
+    missing = [k for k in EXPECTED_ENV_KEYS[which] if k not in plain_env]
+    if missing:
+        print("  ⚠️ mcp.json 的 env 块缺期望键：" + ", ".join(missing)
+              + "——doctor 会降级或 WARN（无凭据的机器可用 --no-doctor 跳 doctor）")
     if "--no-doctor" not in sys.argv:
         step("--doctor：接线 + 堡垒机自检（真 koko 登录；--no-doctor 可跳）")
         import subprocess as sp
