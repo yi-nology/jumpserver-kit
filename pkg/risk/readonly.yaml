@@ -107,6 +107,8 @@ commands:
 #   awk — 同族的 mini-language：system() 与 `print | "cmd"` 都能执行任意
 #         命令，`awk: {}`（无 flag 分析）等于整命令免检放行（下游同族
 #         排查发现，实测 2026-11-09）。
-# 除名后它们落进 MODIFY（与其它未证明只读的命令同待遇）：诚实的标注、
-# 不新增日常摩擦；上游给 bashguard 补上脚本解析（tools#81）后可复检回表。
+# 除名只是前半段：落进 MODIFY 照旧免确认，所以 risk.go 的深检（destructive
+# 里的 miniLanguageDanger）还会扫描脚本内容——带着 w/W/e 或 system()/管道/
+# 重定向的调用判 DANGEROUS（要确认），纯文本过滤照旧免确认。上游给
+# bashguard 补上脚本解析（tools#81）后，深检与除名一起复检回表。
 excluded: [sed, awk]

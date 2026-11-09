@@ -3,6 +3,7 @@ package risk
 import (
 	_ "embed"
 	"github.com/oekit/pkg/slicex"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -426,6 +427,13 @@ func Rehearsal(c jms.CommandClass, confirmed bool) (would bool, blocked string) 
 func destructive(inv bashguard.Invocation) bool {
 	name := baseName(inv.Name)
 	args := inv.Args
+	// mini-language 深检（excluded 的后半段）：除名只把 sed/awk 拽出 READ
+	// 档，落进 MODIFY——而 MODIFY 照旧免确认。带着写/执行原语的脚本必须
+	// 在这里被判 DANGEROUS，否则 sed 's/x/y/e'（任意命令执行）会与
+	// sed 's/a/b/'（纯文本过滤）走同一条免确认车道。
+	if miniLanguageDanger(name, args) {
+		return true
+	}
 	switch {
 	case name == "rm":
 		// A recursive delete is the classic one. `rm -f file` is not.
@@ -498,6 +506,119 @@ func destructive(inv bashguard.Invocation) bool {
 }
 
 // destructiveGit is the git subset that throws work away.
+// ── mini-language 深检（sed / awk）──────────────────────────────
+
+// miniLanguageDanger inspects the SCRIPT CONTENT of the two demoted
+// mini-languages (see readonly.yaml's excluded for why they left the
+// read-only table). sed 和 awk 是带 I/O 与执行原语的图灵完备小语言：
+// 「命令名是过滤器」证明不了「这次调用是过滤器」——判定要看脚本。
+func miniLanguageDanger(name string, args []string) bool {
+	switch baseName(name) {
+	case "sed":
+		return sedScriptDanger(args)
+	case "awk", "gawk", "mawk":
+		return awkProgramDanger(args)
+	}
+	return false
+}
+
+// 措辞级探测，宁枉勿纵：误报的代价是一次确认，漏报的代价是一次免确认
+// 的执行。上游给 bashguard 补上脚本解析（tools#81）后可收紧精度。
+var (
+	// sedWriteRe 抓 w/W 写文件：行地址形态（1w f、/re/w f、2,5w f）与
+	// s///w 尾旗都落在这里——w 前允许数字、$/、分隔符，只排除字母与
+	// 反斜杠（排除字母会把 '1w' 漏掉，排除数字会把地址形态漏掉）。
+	sedWriteRe = regexp.MustCompile(`(?:^|[^\\a-zA-Z])[wW]\s+\S`)
+	// sedExecRe 抓裸 e 命令与 s///e 尾旗（把替换结果当 shell 跑）：
+	// e 后必须是空白或串尾——'s/eval/e/' 里被替换文本中的 e 后面跟着
+	// 分隔符，不命中。
+	sedExecRe = regexp.MustCompile(`(?:^|[^\\a-zA-Z])e(?:\s|$)`)
+)
+
+// sedScriptDanger collects sed's script operands（-e/--expression 的值与
+// 裸操作数）逐段探测；脚本在文件里（-f/--file）内容不可见，证明不了
+// 无写——按危险走。
+func sedScriptDanger(args []string) bool {
+	var scripts []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-f" || a == "--file" || strings.HasPrefix(a, "--file="):
+			return true
+		case a == "-e" || a == "--expression":
+			if i+1 < len(args) {
+				scripts = append(scripts, args[i+1])
+				i++
+			}
+		case strings.HasPrefix(a, "--expression="):
+			scripts = append(scripts, strings.TrimPrefix(a, "--expression="))
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			// 其余 flag（含 -En 这类短旗捆绑）：不含脚本。
+		default:
+			scripts = append(scripts, a)
+		}
+	}
+	for _, s := range scripts {
+		if sedWriteRe.MatchString(s) || sedExecRe.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// awkProgramDanger scans the awk program text for its exec/write
+// primitives: system()、单竖线管道（print | "cmd"、cmd | getline——剔除
+// || 与 && 后再找竖线）、print 重定向到带引号文件名（> "f" / >> "f"；
+// 数值比较 $3 > 100 不带引号，不命中）。程序在文件里（-f/-E/-i/-p/-o
+// 系）内容不可见——按危险走。
+func awkProgramDanger(args []string) bool {
+	awkFileFlags := map[string]bool{
+		"-f": true, "--file": true, "-E": true, "--exec": true,
+		"-i": true, "--include": true, "-p": true, "--profile": true,
+		"-o": true, "--pretty-print": true,
+	}
+	prog := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if awkFileFlags[a] || (len(a) > 2 && strings.HasPrefix(a, "-f")) {
+			// -f 的捆绑短形（-fprog.awk）与全名都算脚本文件。
+			return true
+		}
+		switch {
+		case a == "-e":
+			if i+1 < len(args) {
+				prog = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			// 其余 flag：-v/--assign、-F 取值要跳过它们的值。
+			if i+1 < len(args) && !strings.Contains(a, "=") {
+				// 保守跳过下一个词当值——只有 -v/-F/--assign 需要跳，
+				// 其它（如 --）误跳一个词也无碍（程序多为裸操作数）。
+				i++
+			}
+		default:
+			if prog == "" {
+				prog = a // awk 的第一个裸操作数是程序
+			}
+		}
+	}
+	if prog == "" {
+		return false
+	}
+	if strings.Contains(prog, "system(") {
+		return true
+	}
+	// 单竖线：剔除逻辑或/与后再找管道（|| 与 && 是常见 benign 组合）。
+	if strings.Contains(strings.ReplaceAll(strings.ReplaceAll(prog, "||", ""), "&&", ""), "|") {
+		return true
+	}
+	if regexp.MustCompile(`>\s*["']`).MatchString(prog) {
+		return true
+	}
+	return false
+}
+
 func destructiveGit(args []string) bool {
 	for _, a := range args {
 		switch a {
