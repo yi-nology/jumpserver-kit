@@ -7,6 +7,18 @@
 
 ### 变更
 
+- **FromEnv 增加 env 值裁剪步**（core #88 收编的契约决定）：core v0.13.5 起
+  ApplyEnv 保留 env 值首尾空白，但本仓部署形态里那几乎都是意外——Token
+  带尾随空格 = 每次 API 调用 401 且症状指向别处；枚举字段（JMS_AUDIT/
+  JMS_BACKEND/JUMPSERVER_VERSION）带空白 = 拒载起不来。两面 env 配置统一
+  在 confload 一处裁剪（钉测试盖平铺；嵌套递归由两面集成测试覆盖）。
+- **运维注记**：bootstrap v0.7.0（#80）起关停错误上抛——`serve http/all`
+  在排干超时（如 SSE 长流没在预算内结束）时**退出码非 0**（升级前恒 0）。
+  `Restart=on-failure` 的部署会把「到点没排干」当失败重启；语义是诚实的
+  （没排干就是失败），但部署侧要知道。
+
+### 变更
+
 ### 新增
 
 ### 修复

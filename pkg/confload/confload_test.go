@@ -55,3 +55,27 @@ func TestFromEnvLoadsASettingsStruct(t *testing.T) {
 		t.Errorf("Count = %d, want the declared default 3", s.Count)
 	}
 }
+
+// env 值的首尾空白一律裁掉（core #88 收编的契约决定，见 trimEnvStrings）：
+// Token 带尾随空格升级后会原样进 Authorization 头（升级前被旧版 core
+// 静默裁掉）=> 症状是「升级后堡垒机连不上」；枚举字段带空白会直接拒载。
+// 两类都要在这步被救回来。嵌套结构的递归路径由两面真实配置的集成测试
+// 覆盖（mgmt/exec 的嵌套 config 走过 FromEnv 全程）。
+func TestFromEnvTrimsStringValues(t *testing.T) {
+	t.Setenv("JMSX_TEST_CONFLOAD_TOKEN", " abc123 ")
+	t.Setenv("JMSX_TEST_CONFLOAD_MODE", " off ")
+	type settings struct {
+		Token string `env:"JMSX_TEST_CONFLOAD_TOKEN"`
+		Mode  string `env:"JMSX_TEST_CONFLOAD_MODE" options:"file,off"`
+	}
+	s := &settings{}
+	if err := FromEnv(s); err != nil {
+		t.Fatalf("FromEnv refused a whitespace-padded enum: %v", err)
+	}
+	if s.Token != "abc123" {
+		t.Errorf("Token = %q, want the trimmed value", s.Token)
+	}
+	if s.Mode != "off" {
+		t.Errorf("Mode = %q, want the trimmed enum (ValidateTags must not fire on padding)", s.Mode)
+	}
+}
