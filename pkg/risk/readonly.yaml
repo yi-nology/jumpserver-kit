@@ -43,7 +43,6 @@ commands:
   lsblk:
     safe_flags: {"-f": bool, "-a": bool, "-o": string, "-p": bool, "-b": bool, "-d": bool}
   getent: {}
-  awk: {}
   vmstat: {}
   iostat: {}
   mpstat: {}
@@ -100,3 +99,14 @@ commands:
       auth: {}
       config: {}
       events: {}
+
+# 除名：这些命令「不可能被证明只读」，从最终表里拽出去。
+#   sed — 上游 bashguard 表项把脚本串当裸操作数整体放行，而 sed 脚本自带
+#         I/O 与执行原语（w/W 写文件、e 与 s///e 执行 shell）——登记成只读
+#         等于把 RCE 当文本过滤器（tools#81，本仓实弹复现 2026-11-09）。
+#   awk — 同族的 mini-language：system() 与 `print | "cmd"` 都能执行任意
+#         命令，`awk: {}`（无 flag 分析）等于整命令免检放行（下游同族
+#         排查发现，实测 2026-11-09）。
+# 除名后它们落进 MODIFY（与其它未证明只读的命令同待遇）：诚实的标注、
+# 不新增日常摩擦；上游给 bashguard 补上脚本解析（tools#81）后可复检回表。
+excluded: [sed, awk]

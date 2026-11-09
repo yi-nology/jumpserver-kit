@@ -29,6 +29,9 @@ var table = sync.OnceValue(buildTable)
 type tableFile struct {
 	Version  int                    `yaml:"version"`
 	Commands map[string]commandSpec `yaml:"commands"`
+	// Excluded names commands REMOVED from the merged table (see the yaml
+	// for why a name belongs here).
+	Excluded []string `yaml:"excluded"`
 }
 
 // commandSpec is one command's entry.
@@ -56,6 +59,13 @@ func buildTable() *bashguard.Table {
 	}
 	for name, spec := range f.Commands {
 		t.Commands[name] = spec.policy()
+	}
+	// 除名在合并之后：含 I/O 或执行原语的 mini-language（sed 的 w/W/e，
+	// awk 的 system()/管道执行）不可能被证明只读，「listed = proven
+	// read-only」的契约被破坏 ⇒ 从最终表里拽出去，让它们落进与其它
+	// 未证明命令相同的 MODIFY 待遇（tools#81 + 下游同族排查）。
+	for _, name := range f.Excluded {
+		delete(t.Commands, name)
 	}
 	return t
 }
