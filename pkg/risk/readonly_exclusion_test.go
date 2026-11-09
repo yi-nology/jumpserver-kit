@@ -10,7 +10,7 @@ import (
 // sed 的 w/W/e 与 awk 的 system()/管道执行都是写或执行路径——「listed =
 // proven read-only」的契约对它们不成立。除名之后还有后半段：落 MODIFY
 // 照旧免确认，所以脚本内容带写/执行原语的调用必须在深检里判 DANGEROUS
-//（要确认）——RCE 形态不能与纯文本过滤走同一条免确认车道。
+// （要确认）——RCE 形态不能与纯文本过滤走同一条免确认车道。
 func TestMiniLanguageExecPrimitivesRequireConfirmation(t *testing.T) {
 	cases := []string{
 		"sed -n 'w /tmp/exfil' /etc/hosts",
