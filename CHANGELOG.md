@@ -7,9 +7,38 @@
 
 ### 变更
 
+- **地板提升**：go 指令 1.26.0 → 1.27.0；`go get -u ./...` 全量升级后
+  guardx v0.24.1（连带 tools v0.14.3）**钉回** v0.23.4 / v0.13.4——v0.24.1
+  的 logredact 把 `secret_type` / `SECRET_TYPE` 这类无辜键也刷掉，破坏本仓
+  钉住的「不过度脱敏」契约（TestTheCredentialWordList /
+  TestTheProseFormDoesNotOverMask 红）；上游修了过度匹配再随。其余依赖
+  （oekit 系、grpc、prometheus 系、golang.org/x 系）全量跟进。
+
 ### 新增
 
 ### 修复
+
+- **hasFlag 认全三种拼写**（#23）：精确匹配把同一不可逆动作按书写形态分
+  两档——`git clean -f -d -x` 要确认而 `git clean -fdx` 免确认直过。现在
+  短旗捆绑（-fdx 载有 -f）、长旗等号（--hard=HEAD~1 载有 --hard）与规范
+  拼写同判；kill 族补 `-s KILL` 分离形态（信号名在下一个 token 上，POSIX
+  写法）。git / journalctl / kill / chmod 四族同根因一次修掉。
+- **destructive() 补 find 分支**（#24）：`find -delete` 与 rm -rf 同破坏面
+  直接判不可逆；`-exec` / `-execdir` 按 sudo/xargs 同一条纪律把内层命令
+  再走一次判定（`find . -exec rm -rf {} +` = DANGEROUS，`-exec gzip {} ;`
+  照旧免确认）。双源约定写死在 destructive 的文档里：kit 自维护一张宽过
+  上游 Decision.Destructive 的表，钉测试是漂移门禁。
+- **iptables/nft 删链入档**（#25）：`-X` / `--delete-chain` 与 `-F` 同级
+  （链上规则全失且不可撤销）；nft 拆成自己的子命令分支——`delete` /
+  `flush`（table/chain/rule、`flush ruleset` 一句清空整张防火墙），list 系
+  照旧。
+- **剥壳机制补「别处执行」包装器**（#26）：peelElsewhere 表——docker /
+  podman / nerdctl exec 与 run（容器名/镜像之后）、kubectl exec（`--` 之后，
+  兼容全局 flag 前置）、chroot（第二个操作数）、nsenter（`--` 之后）、
+  su -c（载荷按 shell 文本递归分类）、systemd-run、watch。内层 rm -rf
+  不再因为跑在容器/别的命名空间/别的用户下就免确认下发；定位不到内层时
+  按原样走 destructive()，docker system prune / kubectl delete 的既有判定
+  不受影响。
 
 ## [0.12.3] - 2026-11-09
 ### 变更
