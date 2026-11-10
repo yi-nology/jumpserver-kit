@@ -2,8 +2,8 @@ package risk
 
 import (
 	_ "embed"
-	"github.com/oekit/pkg/slicex"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -166,7 +166,7 @@ func classify(cmd string, depth int) jms.CommandClass {
 		return jms.CommandClass_UNKNOWN
 	}
 	for _, inv := range d.Invocations {
-		if destructive(inv) {
+		if destructive(inv, depth) {
 			return jms.CommandClass_DANGEROUS
 		}
 	}
@@ -283,7 +283,25 @@ func judgeInvocation(name string, args []string, depth int) bool {
 	if real, rest, wrapped := peelWrapper(name, args); wrapped {
 		return judgeInvocation(real, rest, depth+1)
 	}
-	return destructive(bashguard.Invocation{Name: name, Args: args})
+	// 「别处执行」的包装器（kit#26）：载荷不在本进程跑，而是进容器、进
+	// 别的命名空间、切成别的用户——位置语义各不相同，所以按表取内层。
+	if w, ok := peelElsewhere[name]; ok {
+		if w.text != nil {
+			if s := w.text(args); s != "" {
+				return RequiresConfirmation(classify(s, depth+1))
+			}
+		} else if argv := w.argv(args); len(argv) > 0 {
+			if argv[0] == "--" {
+				argv = argv[1:] // 分隔符不是命令
+			}
+			if len(argv) > 0 {
+				return judgeInvocation(argv[0], argv[1:], depth+1)
+			}
+		}
+		// 内层定位不到（docker ps / su root 不带 -c）：按原样走下面的判定，
+		// docker system prune / kubectl delete 仍在这里被抓住。
+	}
+	return destructive(bashguard.Invocation{Name: name, Args: args}, depth)
 }
 
 func isShell(name string) bool {
@@ -320,22 +338,7 @@ func peelWrapper(name string, args []string) (inner string, rest []string, ok bo
 	if !isWrapper && !peelBare[name] {
 		return "", nil, false
 	}
-	i := 0
-	for i < len(args) {
-		a := args[i]
-		if a == "--" {
-			i++
-			break
-		}
-		if !strings.HasPrefix(a, "-") || a == "-" {
-			break
-		}
-		if vf[a] {
-			i += 2 // the flag's value is not the command
-			continue
-		}
-		i++
-	}
+	i := skipFlags(args, vf)
 	if name == "env" {
 		// env VAR=val … cmd: the assignments are not the command either.
 		for i < len(args) && isAssignment(args[i]) {
@@ -349,6 +352,183 @@ func peelWrapper(name string, args []string) (inner string, rest []string, ok bo
 		return "", nil, false
 	}
 	return args[i], args[i+1:], true
+}
+
+// skipFlags walks an argument list past the wrapper's flags and returns the
+// index of the first operand（值 flag 连值一起跳过，`--` 之后的都算操作数）。
+// 剥壳机制共用的这一步原先内联在 peelWrapper 里；「别处执行」的包装器
+// 各有自己的位置语义，但「跳过 flag、落在操作数上」是同一个动作。
+func skipFlags(args []string, valueFlags map[string]bool) int {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if a == "--" {
+			return i + 1
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			return i
+		}
+		if valueFlags[a] {
+			i += 2 // 取值 flag 的值不是命令
+			continue
+		}
+		i++
+	}
+	return i
+}
+
+// elsewhereRule 是「别处执行」包装器的内层定位规则：载荷跑在容器里、别的
+// 命名空间里、别的用户下——包装器只是运输工具，破坏面在载荷上。argv 与
+// text 二选一：argv 把载荷当命令+参数取出来；text 把载荷当 shell 文本
+// （su -c 的串要递归 parse，不是 argv）。
+type elsewhereRule struct {
+	argv func(args []string) []string // nil = 该包装器的载荷不是 argv 形态
+	text func(args []string) string   // 载荷的 shell 文本；空串 = 没有
+}
+
+// peelElsewhere 列出「载荷在别处执行」的包装器（kit#26）。这批包装器
+// 违反了剥壳机制原来的假设「命令最终在本机进程里跑」：docker exec 把
+// rm -rf 送进容器、nsenter -t 1 -m -- 直落宿主机根文件系统、chroot 换根、
+// su -c 换用户——内层命令从来没进过判定，落点全在 MODIFY 免确认档。
+// 定位不到内层时调用方按原样走 destructive()，所以 docker/kubectl 在
+// 这里的既有判定（system prune / delete）不受影响。
+var peelElsewhere = map[string]elsewhereRule{
+	"docker":  {argv: containerInner},
+	"podman":  {argv: containerInner},
+	"nerdctl": {argv: containerInner},
+	"kubectl": {argv: kubectlExecInner},
+	"chroot":  {argv: chrootInner},
+	"nsenter": {argv: func(args []string) []string { return args[skipFlags(args, nsenterValueFlags):] }},
+	"su":      {text: suShellText},
+	"systemd-run": {
+		argv: func(args []string) []string { return args[skipFlags(args, systemdRunValueFlags):] },
+	},
+	"watch": {argv: func(args []string) []string { return args[skipFlags(args, watchValueFlags):] }},
+}
+
+// 各「别处执行」包装器里消耗下一个参数的 flag：定位内层时跳过值，否则
+// 值会被误当容器名 / 镜像 / 命令（`docker run -v /:/host alpine rm …` 把
+// /:/host 当了镜像，真命令就整体判错位）。等号形态（--user=root）是单
+// token，通用路径自会跳过。
+var (
+	containerValueFlags = map[string]bool{
+		// docker/podman exec 与 run 的并集——run 的取值 flag 远多于 exec
+		//（卷、端口、资源、网络、健康检查……）。
+		"-u": true, "--user": true, "-w": true, "--workdir": true,
+		"-e": true, "--env": true, "--env-file": true,
+		"-v": true, "--volume": true, "--mount": true, "--name": true,
+		"-p": true, "--publish": true, "--expose": true, "--link": true,
+		"--network": true, "--net": true, "--mac-address": true, "--ip": true,
+		"--dns": true, "--dns-search": true, "--dns-option": true, "--add-host": true,
+		"-h": true, "--hostname": true, "--domainname": true,
+		"-m": true, "--memory": true, "--memory-swap": true, "--memory-reservation": true,
+		"--cpus": true, "--cpu-shares": true, "-c": true, "--cpu-period": true, "--cpu-quota": true,
+		"--restart": true, "--runtime": true, "--platform": true, "--pull": true,
+		"--entrypoint": true, "-l": true, "--label": true, "--label-file": true,
+		"--cap-add": true, "--cap-drop": true, "--device": true, "--device-cgroup-rule": true,
+		"--gpus": true, "--group-add": true, "--health-cmd": true, "--health-interval": true,
+		"--health-retries": true, "--health-timeout": true, "--health-start-period": true,
+		"--log-driver": true, "--log-opt": true, "--shm-size": true, "--stop-signal": true,
+		"--stop-timeout": true, "--ulimit": true, "--sysctl": true, "--tmpfs": true,
+		"--volumes-from": true, "--security-opt": true, "--storage-opt": true,
+		"--cgroup-parent": true, "--pid": true, "--ipc": true, "--uts": true, "--userns": true,
+		"-a": true, "--attach": true, "--cidfile": true,
+	}
+	kubectlExecValueFlags = map[string]bool{
+		"-c": true, "--container": true, "-n": true, "--namespace": true,
+		"--context": true, "--kubeconfig": true, "--cluster": true, "--user": true,
+		"--pod": true, "--pod-name": true,
+	}
+	chrootValueFlags = map[string]bool{
+		"--userspec": true, "--user": true, "-u": true, "--groups": true, "-g": true,
+	}
+	nsenterValueFlags = map[string]bool{
+		"-t": true, "--target": true, "-S": true, "--setuid": true, "-G": true, "--setgid": true,
+	}
+	systemdRunValueFlags = map[string]bool{
+		"--unit": true, "--property": true, "-p": true, "--description": true,
+		"--slice": true, "--setenv": true, "-E": true, "--uid": true, "--gid": true,
+		"--nice": true, "--working-directory": true, "--tty": true,
+	}
+	watchValueFlags = map[string]bool{
+		"-n": true, "--interval": true,
+	}
+)
+
+// containerInner 定位 docker/podman/nerdctl 的内层命令：
+//
+//	exec  [-flags] CONTAINER CMD…（container exec 同形）
+//	run   [-flags] IMAGE    CMD…
+//
+// 第一个非 flag 操作数是容器/镜像，命令在它之后；之后没有词 = 没带命令
+// （docker run -it alpine），按原样走调用方的判定。
+func containerInner(args []string) []string {
+	rest := args
+	if len(rest) > 1 && rest[0] == "container" && rest[1] == "exec" {
+		rest = rest[1:]
+	}
+	if len(rest) < 2 || (rest[0] != "exec" && rest[0] != "run") {
+		return nil
+	}
+	j := skipFlags(rest[1:], containerValueFlags)
+	if j+1 >= len(rest[1:]) {
+		return nil
+	}
+	return rest[j+2:]
+}
+
+// kubectlExecInner 定位 kubectl exec 的内层命令：`--` 之后是规范形态；
+// 无 `--` 时 flags → pod 名 → 命令。kubectl 的全局 flag（-n/--context…）
+// 允许写在 exec 前面，先跳过再认子命令。
+func kubectlExecInner(args []string) []string {
+	rest := args
+	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+		if kubectlExecValueFlags[rest[0]] && len(rest) > 1 {
+			rest = rest[2:]
+			continue
+		}
+		rest = rest[1:]
+	}
+	if len(rest) == 0 || rest[0] != "exec" {
+		return nil
+	}
+	for i, a := range rest[1:] {
+		if a == "--" {
+			return rest[i+2:]
+		}
+	}
+	j := skipFlags(rest[1:], kubectlExecValueFlags)
+	if j+1 >= len(rest[1:]) {
+		return nil
+	}
+	return rest[j+2:]
+}
+
+// chrootInner：NEWROOT 是第一个操作数，命令是第二个；只有 NEWROOT 没有
+// 命令 = 进去起交互 shell，没有可判的内层。
+func chrootInner(args []string) []string {
+	j := skipFlags(args, chrootValueFlags)
+	if j+1 >= len(args) {
+		return nil
+	}
+	return args[j+1:]
+}
+
+// suShellText 取 su -c/--command 的值：那是一段 shell 文本，交给 classify
+// 递归分类（`su - root -c 'rm -rf /data'` 的载荷在引号里，不是 argv）。
+func suShellText(args []string) string {
+	for i, a := range args {
+		if a == "-c" || a == "--command" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if s, ok := strings.CutPrefix(a, "--command="); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 func isAssignment(s string) bool {
@@ -424,7 +604,16 @@ func Rehearsal(c jms.CommandClass, confirmed bool) (would bool, blocked string) 
 // the parser gives: the name of the program and its arguments. A dangerous
 // word inside a string is not a command, and a dangerous command behind a
 // wrapper (sudo, nohup, timeout) is still the same command.
-func destructive(inv bashguard.Invocation) bool {
+//
+// ⚠️ 双源约定（kit#24 顺带核实的那条）：上游 bashguard 已经算出
+// Decision.Destructive，本函数**不消费**它——kit 自维护一张刻意更宽的
+// 表（剥壳、mini-language 深检、find 的内层重判都宽过上游），上游表补
+// 齐之前复用它只会窄化判定。漂移的门禁是本包的钉测试：每条「宽过上游」
+// 的行为都有对应用例，上游追平与否在这里可见、可决策。
+//
+// depth 是递归预算：find -exec 的内层命令会再走一次判定（与 sudo/xargs
+// 剥壳同一条纪律），预算由 classify 收口。
+func destructive(inv bashguard.Invocation, depth int) bool {
 	name := baseName(inv.Name)
 	args := inv.Args
 	// mini-language 深检（excluded 的后半段）：除名只把 sed/awk 拽出 READ
@@ -437,7 +626,7 @@ func destructive(inv bashguard.Invocation) bool {
 	switch {
 	case name == "rm":
 		// A recursive delete is the classic one. `rm -f file` is not.
-		return hasFlag(args, "-r", "-R", "--recursive") || hasShortFlag(args, 'r')
+		return hasFlag(args, "-r", "-R", "--recursive")
 	case strings.HasPrefix(name, "mkfs"):
 		return true
 	case name == "wipefs", name == "shred":
@@ -454,7 +643,7 @@ func destructive(inv bashguard.Invocation) bool {
 		return true
 	case name == "init":
 		// init 0 / init 6
-		return slicex.Contains(args, "0") || slicex.Contains(args, "6")
+		return slices.Contains(args, "0") || slices.Contains(args, "6")
 	case name == "userdel", name == "useradd", name == "usermod",
 		name == "groupdel", name == "groupadd", name == "passwd", name == "chpasswd",
 		name == "gpasswd", name == "visudo":
@@ -469,18 +658,60 @@ func destructive(inv bashguard.Invocation) bool {
 			}
 		}
 		return false
-	case name == "iptables", name == "nft", name == "ip6tables":
-		return slicex.Contains(args, "-F") ||
-			slicex.Contains(args, "--flush") ||
-			slicex.Contains(args, "flush")
+	case name == "iptables", name == "ip6tables":
+		// -F/--flush 清链上的规则；-X/--delete-chain 删链——链上规则一并
+		// 消失且不可撤销（kit#25：-X 不在判定表里，免确认就下发了）。
+		return hasFlag(args, "-F", "--flush", "-X", "--delete-chain")
+	case name == "nft":
+		// nft 的语法是子命令式的：delete/flush 直接抹掉 table/chain/rule
+		//（`nft flush ruleset` 一句清空整张防火墙）。list 系照旧不在此列。
+		return slices.Contains(args, "delete") || slices.Contains(args, "flush")
 	case name == "chmod", name == "chown":
 		// `chmod -R 777 /` reaches everything; `chmod 644 file` does not.
 		return hasFlag(args, "-R", "--recursive")
 	case name == "kill", name == "killall", name == "pkill":
-		return hasFlag(args, "-9", "-KILL", "--signal", "-SIGKILL")
+		// 单 token 带齐信号的形态：-9 / -KILL / -SIGKILL / --signal=KILL。
+		if hasFlag(args, "-9", "-KILL", "-SIGKILL", "--signal") {
+			return true
+		}
+		// 分离形态（kit#23）：`kill -s KILL <pid>`——信号名在下一个
+		// token 上，POSIX 写法，原先不在表里。pkill 的 -s 是 session，
+		// 它只有 --signal，不在这里判。
+		if name == "pkill" {
+			return false
+		}
+		for i := 0; i+1 < len(args); i++ {
+			if (args[i] == "-s" || args[i] == "--signal") && isKillSignal(args[i+1]) {
+				return true
+			}
+		}
+		return false
 	case name == "journalctl":
 		// Vacuuming the journal deletes the audit trail.
 		return hasFlag(args, "--vacuum-size", "--vacuum-time", "--vacuum-files", "--rotate", "--flush")
+	case name == "find":
+		// find 的批量删除形态（kit#24）：-delete 对每个命中直接 unlink，
+		// 与 rm -rf 同破坏面；-exec/-execdir 对每个命中执行一条任意命令
+		// ——与 sudo/xargs 兜底同一条纪律：跳过 {} 占位与 ; / + 终结符，
+		// 把内层命令再走一次判定。
+		for i := 0; i < len(args); i++ {
+			switch args[i] {
+			case "-delete":
+				return true
+			case "-exec", "-execdir":
+				inner, consumed, ok := findExecBody(args[i+1:])
+				if !ok {
+					// 没有终结符：这条 find 自己跑不起来，内层不可定位
+					// ——按危险走（宁枉勿纵）。
+					return true
+				}
+				if len(inner) > 0 && judgeInvocation(inner[0], inner[1:], depth+1) {
+					return true
+				}
+				i += consumed // 内层体消费掉，别把载荷的词再当 find 参数扫
+			}
+		}
+		return false
 	case name == "kubectl":
 		// A dry run deletes nothing — asking for a confirmation on it
 		// teaches the agent that the flag is meaningless (measured
@@ -490,7 +721,7 @@ func destructive(inv bashguard.Invocation) bool {
 				return false
 			}
 		}
-		return slicex.Contains(args, "delete")
+		return slices.Contains(args, "delete")
 	case name == "docker", name == "podman":
 		for i, a := range args {
 			if a == "system" && i+1 < len(args) && args[i+1] == "prune" {
@@ -505,7 +736,6 @@ func destructive(inv bashguard.Invocation) bool {
 	return strings.HasSuffix(name, "-uninstall.sh")
 }
 
-// destructiveGit is the git subset that throws work away.
 // ── mini-language 深检（sed / awk）──────────────────────────────
 
 // miniLanguageDanger inspects the SCRIPT CONTENT of the two demoted
@@ -619,11 +849,12 @@ func awkProgramDanger(args []string) bool {
 	return false
 }
 
+// destructiveGit is the git subset that throws work away.
 func destructiveGit(args []string) bool {
 	for _, a := range args {
 		switch a {
 		case "clean":
-			// git clean -fd
+			// git clean -fd（捆绑短旗同样带 f：hasFlag 认三种拼写）
 			return hasFlag(args, "-f", "--force")
 		case "reset":
 			// git reset --hard
@@ -652,28 +883,62 @@ func baseName(name string) string {
 	return name
 }
 
-// hasFlag reports whether one of the flags is present.
+// hasFlag reports whether one of the flags is present, in any of the three
+// spellings the command line allows:
+//
+//   - exact:             -f   --force
+//   - bundled shorts:    -fdx carries -f（短旗可捆绑，rm -rf 早就如此）
+//   - long with a value: --hard=HEAD~1 carries --hard
+//
+// 精确相等是旧规则，它把同一个动作按拼写分了两档：`git clean -f -d -x`
+// 要确认而 `git clean -fdx`——更自然的写法——免确认直过（kit#23）。
+// 误报方向是安全的：一次多余的确认；漏报方向是一次免确认的不可逆执行。
 func hasFlag(args []string, flags ...string) bool {
-	for _, f := range flags {
-		if slicex.Contains(args, f) {
-			return true
+	for _, a := range args {
+		if len(a) < 2 || a[0] != '-' {
+			continue // not a flag
+		}
+		if a[1] == '-' {
+			// 长旗：--hard=HEAD~1 载有 --hard。
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				a = a[:eq]
+			}
+			if slices.Contains(flags, a) {
+				return true
+			}
+			continue
+		}
+		// 短旗或一捆短旗：-fdx 载有 -f。
+		for _, f := range flags {
+			if len(f) == 2 && f[0] == '-' && strings.ContainsRune(a[1:], rune(f[1])) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// hasShortFlag reports whether a short flag bundle carries the letter.
-//
-// `rm -rf` carries the recursive flag in a bundle, and looking for the exact
-// string "-r" would miss it.
-func hasShortFlag(args []string, letter byte) bool {
-	for _, a := range args {
-		if len(a) < 2 || a[0] != '-' || a[1] == '-' {
+// isKillSignal 报告 token 是否指名 SIGKILL（信号名 / SIG 前缀形态 / 编号）。
+// kill -s 的信号在下一个 token 上，得看值而不是 flag 本身。
+func isKillSignal(s string) bool {
+	s = strings.TrimPrefix(strings.ToUpper(s), "SIG")
+	return s == "KILL" || s == "9"
+}
+
+// findExecBody 收集 -exec/-execdir 到它的 ; / + 终结符之间的命令（{}
+// 是 find 填充的占位符，属数据不属命令词），返回去占位后的命令与消耗的
+// 参数个数。ok=false：没有终结符——这条 find 自己跑不起来，内层不可定位。
+// 终结符的 `\;` 形态：shell 里 ; 必须转义，parser 把字面量连同反斜杠
+// 一起交下来（实测 AllCall 的 args 是 `\;` 两字符）。
+func findExecBody(args []string) (cmd []string, consumed int, ok bool) {
+	for j, a := range args {
+		if a == ";" || a == "\\;" || a == "+" {
+			return cmd, j + 1, true
+		}
+		if a == "{}" {
 			continue
 		}
-		if strings.ContainsRune(a[1:], rune(letter)) {
-			return true
-		}
+		cmd = append(cmd, a)
 	}
-	return false
+	return nil, 0, false
 }
