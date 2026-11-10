@@ -7,6 +7,12 @@
 
 ### 变更
 
+### 新增
+
+### 修复
+
+## [0.12.5] - 2026-11-11
+### 变更
 - **地板提升**：go 指令 1.26.0 → 1.27.0；`go get -u ./...` 全量升级后
   guardx v0.24.1（连带 tools v0.14.3）**钉回** v0.23.4 / v0.13.4——v0.24.1
   的 logredact 把 `secret_type` / `SECRET_TYPE` 这类无辜键也刷掉，破坏本仓
@@ -14,10 +20,7 @@
   TestTheProseFormDoesNotOverMask 红）；上游修了过度匹配再随。其余依赖
   （oekit 系、grpc、prometheus 系、golang.org/x 系）全量跟进。
 
-### 新增
-
 ### 修复
-
 - **hasFlag 认全三种拼写**（#23）：精确匹配把同一不可逆动作按书写形态分
   两档——`git clean -f -d -x` 要确认而 `git clean -fdx` 免确认直过。现在
   短旗捆绑（-fdx 载有 -f）、长旗等号（--hard=HEAD~1 载有 --hard）与规范
@@ -39,7 +42,6 @@
   不再因为跑在容器/别的命名空间/别的用户下就免确认下发；定位不到内层时
   按原样走 destructive()，docker system prune / kubectl delete 的既有判定
   不受影响。
-
 ## [0.12.3] - 2026-11-09
 ### 变更
 - **FromEnv 增加 env 值裁剪步**（core #88 收编的契约决定）：core v0.13.5 起
