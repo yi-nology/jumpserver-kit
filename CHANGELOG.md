@@ -11,6 +11,51 @@
 
 ### 修复
 
+## [0.13.0] - 2026-11-12
+### 修复
+- **kubectl 的「创建并进去执行」载荷全族重判**（#28）：剥壳表的 kubectl
+  内层定位从只认 exec 扩成 exec / run / debug 三兄弟——`kubectl run … --
+  rm -rf /data` 的载荷此前落 MODIFY 免确认；run 与 debug 的内层只在 `--`
+  之后（NAME/TARGET 不是命令，无 `--` = 没有载荷）。kubectl cp 的方向性
+  拷贝确认面与 put_file 的一致性属工具策略层，不在分类器内强求。
+- **kubectl config 收窄到真只读形态**（#29）：整族放行让 use-context（改
+  current-context——决定后续 kubectl 打哪个集群、用哪份凭据）顶着 READ 档
+  免确认生效。收窄到 view / current-context / get-contexts，写动词按缺席
+  机制落 MODIFY 档。顺带补齐旗标精度：全局旗标（-n/-A/--context/
+  --kubeconfig 等，写在子命令之前）与子命令旗标（get 的 -o/-A/-w、logs 的
+  -f/--tail 等）分别归位，`kubectl get pods -A` / `-o wide` 拿回 READ 档
+  ——纯标签精度，MODIFY 与 READ 都免确认，无门禁影响。
+- **helm 入档**（#30）：delete/uninstall（含 del / delete / un 别名族，
+  换拼写换档就是 #23 那条旁路）删整个 release——与 kubectl delete 同破坏
+  面，判 DANGEROUS 要确认；rollback 可逆、install/upgrade 落原判定。只读
+  侧补 status / list / history / get / env / show / template 进只读表。
+- **kubectl 的删除路径旗标入档**（#31）：apply `--prune` 把 apply 变成
+  delete（清单之外的现存资源被删除，删除路径不可逆）；drain 的
+  `--delete-emptydir-data`（emptyDir 随驱逐清空）与 `--force`（删不受控制
+  器管理的 pod）带删数据语义——都判 DANGEROUS。裸 drain 只是驱逐（可恢复）
+  ，维持原判定；`--dry-run` 照旧放行。
+- **tee 到设备节点入档**（#32）：设备写入的三条语法通道（dd、重定向、
+  tee）补齐第三条——tee 的目标操作数落在 `/dev/*` ⇒ 与 `dd of=` 同破坏面
+  判 DANGEROUS。/dev/null 与 /dev/zero 的豁免与重定向通道共用同一份判据
+  （isDeviceNode 单源，两通道不再漂）；普通文件目标维持原判定（tee
+  /etc/hosts 与 > /etc/hosts 同档）。
+- **truncate 全量入档**（#33）：对任意文件的 truncate 本就是数据销毁原语
+  （不可逆截断），是 journalctl --vacuum（已判 DANGEROUS）的同意图旁路。
+  全量判 DANGEROUS（方案 A，宁枉勿纵：误报=一次确认，漏报=一次免确认的
+  销毁；按路径收窄的清单换个路径照样销毁），与 shred 同族对齐。
+- **crontab 入档**（#34）：`-r` 删整张 crontab（不可逆，原调度内容丢失）
+  与安装形态（文件 / stdin，含裸调用读 stdin——改调度=改「什么在什么时候
+  以谁的身份跑」的持久化原语，与 useradd/passwd 同族）判 DANGEROUS；
+  `-l` 进只读表拿 READ 档（带 `-u` 限定照旧），`-e` 交互态维持原判定。
+  ⚠️ 只读表机制表达不了「叶子命令裸跑即写」（NoBareOperands 只对有子命令
+  的条目表达这个语义）⇒ classify 在只读短路之前补了 bareStdinInstall——
+  裸 crontab 的只读证明被掀掉，安装形态不能顶着「已证明无害」的 READ 档走。
+- **ip 族入档**（#35）：flush 家族（route/addr/neigh，`ip -6` 同逃）清空
+  路由/地址/邻居表、`link set <dev> down` 拔网线、`link del|delete <dev>`
+  删接口——远程断网+把操作者自己锁在外面，与 iptables -F 同破坏面判
+  DANGEROUS。只读侧补 route/addr/link/neigh 的 show/list/get 进只读表；
+  单条 add/del、拉起接口可逆，维持原判定。
+
 ## [0.12.5] - 2026-11-11
 ### 变更
 - **地板提升**：go 指令 1.26.0 → 1.27.0；`go get -u ./...` 全量升级后
