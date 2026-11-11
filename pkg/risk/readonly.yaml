@@ -86,19 +86,92 @@ commands:
       history: {}
       search: {}
   kubectl:
+    # 全局旗标写在子命令之前时归本层（splitSubcommand 用顶层表消费它们）。
+    safe_flags: {"-n": string, "--namespace": string, "-A": bool, "--context": string, "--kubeconfig": string, "--cluster": string, "--user": string}
     subcommands:
-      get: {}
-      describe: {}
-      logs: {}
-      top: {}
-      version: {}
-      api-resources: {}
+      get:
+        safe_flags: {"-A": bool, "-o": string, "-n": string, "--namespace": string, "-w": bool, "--watch": bool, "-l": string, "--selector": string, "--show-labels": bool, "--sort-by": string, "--field-selector": string}
+      describe:
+        safe_flags: {"-n": string, "--namespace": string, "--show-events": bool}
+      logs:
+        safe_flags: {"-f": bool, "--follow": bool, "--tail": string, "-c": string, "--container": string, "-p": bool, "--previous": bool, "--timestamps": bool, "--since": string, "--since-time": string, "-n": string, "--namespace": string}
+      top:
+        safe_flags: {"-A": bool, "-n": string, "--namespace": string, "-l": string, "--selector": string}
+      version:
+        safe_flags: {"-o": string}
+      api-resources:
+        safe_flags: {"-o": string, "--namespaced": bool, "--api-group": string, "--verbs": string, "--cached": bool, "--sort-by": string, "--no-headers": bool}
       api-versions: {}
-      explain: {}
+      explain:
+        safe_flags: {"--recursive": bool}
       cluster-info: {}
       auth: {}
-      config: {}
-      events: {}
+      events:
+        safe_flags: {"-A": bool, "-n": string, "--namespace": string, "-o": string, "--watch": bool}
+      config:
+        # #29:config 整族放行让写动词顶着 READ 档生效——use-context 改
+        # current-context（决定后续 kubectl 打哪个集群、用哪份凭据），
+        # set-context/set-credentials 写 kubeconfig 本体。收窄到真只读的
+        # 查形态；写动词按缺席机制留在表外（落 MODIFY 档）。
+        subcommands:
+          view: {}
+          current-context: {}
+          get-contexts:
+            safe_flags: {"-o": string, "--no-headers": bool}
+  helm:
+    # #30:helm 此前无条目——只读的巡检形态拿不到 READ 档标签。写动词
+    #（uninstall/delete/del/un 别名族，删整个 release）按缺席机制留在表外，
+    # 由 risk.go 的 helm 分支判不可逆；upgrade/install 可逆、rollback 可逆，
+    # 都不在此列。get/show/template 是纯只读（get 读 release 的记录，
+    # show 拉取 chart 元数据，template 本地渲染不碰集群）。
+    subcommands:
+      status: {}
+      list:
+        safe_flags: {"-A": bool, "--all-namespaces": bool, "-n": string, "--namespace": string, "-q": bool, "--short": bool, "-o": string, "--format": string, "--filter": string, "-m": number, "--max": number, "--uninstalling": bool, "--pending": bool, "--deployed": bool, "--failed": bool, "--superseded": bool, "--all": bool}
+      history:
+        safe_flags: {"-n": string, "--namespace": string, "-o": string, "--format": string, "--max": number}
+      get: {}
+      env: {}
+      show: {}
+      template: {}
+  crontab:
+    # #34:crontab 的三种形态三种档——-l 只读（带 -u 限定照旧）；-r 删整表
+    # 与安装形态（文件/stdin）按缺席机制留在表外，由 risk.go 的 crontab
+    # 分支判 DANGEROUS。no_bare_operands 把带操作数的安装形态从只读表里
+    # 推开（裸操作数即写形态）；裸调用的 stdin 安装由 classify 的补丁掀掉
+    # 只读证明（叶子条目裸跑判 READ 是表机制表达不了的盲区）。
+    no_bare_operands: true
+    safe_flags: {"-l": bool, "-u": string}
+  ip:
+    # #35:ip 族的只读形态。写形态（flush 家族、link set down、link del）
+    # 按缺席机制留在表外，由 risk.go 的 ip 分支判不可逆（远程断网+自锁）。
+    safe_flags: {"-4": bool, "-6": bool, "-o": bool, "--oneline": bool, "-j": bool, "--json": bool, "-p": bool, "--pretty": bool, "-s": bool, "-stats": bool, "--statistics": bool, "-d": bool, "--details": bool, "-c": bool, "--color": bool, "-n": bool, "--numeric": bool, "-br": bool, "--brief": bool, "-f": string, "--family": string}
+    subcommands:
+      route:
+        subcommands:
+          show: {}
+          list: {}
+          get: {}
+      addr:
+        subcommands:
+          show: {}
+          list: {}
+      address:
+        subcommands:
+          show: {}
+          list: {}
+      link:
+        subcommands:
+          show: {}
+          list: {}
+      neigh:
+        subcommands:
+          show: {}
+          list: {}
+      neighbor:
+        subcommands:
+          show: {}
+          list: {}
 
 # 除名：这些命令「不可能被证明只读」，从最终表里拽出去。
 #   sed — 上游 bashguard 表项把脚本串当裸操作数整体放行，而 sed 脚本自带

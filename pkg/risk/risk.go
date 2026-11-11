@@ -41,9 +41,14 @@ type tableFile struct {
 // verbs are not mentioned, so they cannot be reached by a typo in a deny
 // list.
 type commandSpec struct {
-	SafeFlags   map[string]string      `yaml:"safe_flags"`
-	UnsafeFlags []string               `yaml:"unsafe_flags"`
-	Subcommands map[string]commandSpec `yaml:"subcommands"`
+	SafeFlags   map[string]string `yaml:"safe_flags"`
+	UnsafeFlags []string          `yaml:"unsafe_flags"`
+	// NoBareOperands 把带裸操作数的调用从只读表里推开（crontab file 是
+	// 安装形态）。注意它与 bashguard 里 git stash 形态的「裸跑即写」不同：
+	// 叶子条目的裸跑（零参数）仍判 READ —— 那个语义由 classify 的
+	// bareStdinInstall 补丁兜住。
+	NoBareOperands bool                   `yaml:"no_bare_operands"`
+	Subcommands    map[string]commandSpec `yaml:"subcommands"`
 }
 
 // buildTable merges the analyzer's base table with the file's additions.
@@ -74,9 +79,10 @@ func buildTable() *bashguard.Table {
 // policy turns one entry into the analyzer's policy shape.
 func (s commandSpec) policy() bashguard.Policy {
 	p := bashguard.Policy{
-		ReadOnly:    true,
-		SafeFlags:   map[string]bashguard.FlagKind{},
-		UnsafeFlags: s.UnsafeFlags,
+		ReadOnly:       true,
+		SafeFlags:      map[string]bashguard.FlagKind{},
+		UnsafeFlags:    s.UnsafeFlags,
+		NoBareOperands: s.NoBareOperands,
 	}
 	for flag, kind := range s.SafeFlags {
 		k, ok := flagKind(kind)
@@ -136,6 +142,14 @@ func classify(cmd string, depth int) jms.CommandClass {
 		return jms.CommandClass_DANGEROUS
 	}
 	d := bashguard.Analyze(cmd, table())
+	// 「裸跑即写」的补丁（kit#34）：crontab 裸调用（零参数）读 stdin 安装
+	// 整张表，是写形态——只读表机制表达不了这个语义（NoBareOperands 在
+	// bashguard 里只对「有子命令的条目」表达「裸跑即写」，见
+	// evalSubcommandPolicy 的 git stash；叶子条目裸跑照旧判 READ）。
+	// 安装形态不能顶着「已证明无害」的 READ 标签走 ⇒ 在只读短路之前掀掉。
+	if d.ReadOnly && bareStdinInstall(d.AllCalls) {
+		d.ReadOnly = false
+	}
 	if d.ReadOnly {
 		// The parser says this cannot write. That is the strongest
 		// statement we can make without running it.
@@ -197,8 +211,8 @@ func parsed(cmd string) *syntax.File {
 // `cat disk.img > /dev/sda` writes the boot disk exactly like `dd
 // of=/dev/sda` — the table catches the dd spelling; the redirect spelling
 // only shows up on the statement's Redirects, which Invocations never
-// carried. /dev/null is excluded: discarding output is the everyday case,
-// and /dev/zero discards writes the same way.
+// carried. Device-node judgement is shared with the tee branch (kit#32):
+// three syntax channels for the same write, one gate each.
 func dangerousRedirect(f *syntax.File) bool {
 	if f == nil {
 		return false
@@ -217,8 +231,7 @@ func dangerousRedirect(f *syntax.File) bool {
 			if !lit {
 				continue // a dynamic target ($DEV) says nothing about where
 			}
-			if strings.HasPrefix(target, "/dev/") &&
-				target != "/dev/null" && target != "/dev/zero" {
+			if isDeviceNode(target) {
 				found = true
 				return false
 			}
@@ -226,6 +239,15 @@ func dangerousRedirect(f *syntax.File) bool {
 		return true
 	})
 	return found
+}
+
+// isDeviceNode reports whether a write target is a device node. /dev/null
+// and /dev/zero are excluded: discarding output is the everyday case, and
+// /dev/zero discards writes the same way. The redirect spelling and the tee
+// operand spelling share this one judgement (kit#32).
+func isDeviceNode(target string) bool {
+	return strings.HasPrefix(target, "/dev/") &&
+		target != "/dev/null" && target != "/dev/zero"
 }
 
 // wordLiteral is a word's spelling when every part of it is literal text.
@@ -477,9 +499,15 @@ func containerInner(args []string) []string {
 	return rest[j+2:]
 }
 
-// kubectlExecInner 定位 kubectl exec 的内层命令：`--` 之后是规范形态；
-// 无 `--` 时 flags → pod 名 → 命令。kubectl 的全局 flag（-n/--context…）
-// 允许写在 exec 前面，先跳过再认子命令。
+// kubectlExecInner 定位 kubectl「创建并进去执行」子命令的内层命令
+// （kit#28：run 与 #26 已收编的 exec、同族的 debug 一样——载荷跑在 pod、
+// 临时容器或 node 宿主里，不在本机进程）：
+//
+//	exec  [-flags] POD CMD…（`--` 之后是规范形态；无 `--` 时 flags → pod 名 → 命令）
+//	run   [-flags] NAME CMD…（内层只在 `--` 之后；run 无 `--` = 不带命令）
+//	debug [-flags] TARGET CMD…（内层只在 `--` 之后，同 run）
+//
+// kubectl 的全局 flag（-n/--context…）允许写在子命令前面，先跳过再认子命令。
 func kubectlExecInner(args []string) []string {
 	rest := args
 	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
@@ -489,19 +517,36 @@ func kubectlExecInner(args []string) []string {
 		}
 		rest = rest[1:]
 	}
-	if len(rest) == 0 || rest[0] != "exec" {
+	if len(rest) == 0 {
 		return nil
 	}
-	for i, a := range rest[1:] {
-		if a == "--" {
+	switch rest[0] {
+	case "exec":
+		return kubectlExecArgs(rest[1:])
+	case "run", "debug":
+		// run 的 NAME 是要创建的 pod 名、debug 的 TARGET 是被调试对象
+		// ——都不是命令；`--` 之后才是载荷，没有 `--` = 没有可判的内层。
+		if i := slices.Index(rest[1:], "--"); i >= 0 {
 			return rest[i+2:]
 		}
-	}
-	j := skipFlags(rest[1:], kubectlExecValueFlags)
-	if j+1 >= len(rest[1:]) {
 		return nil
 	}
-	return rest[j+2:]
+	return nil
+}
+
+// kubectlExecArgs 是 exec 的内层定位：`--` 之后是规范形态；无 `--` 时
+// flags → pod 名 → 命令。
+func kubectlExecArgs(args []string) []string {
+	for i, a := range args {
+		if a == "--" {
+			return args[i+1:]
+		}
+	}
+	j := skipFlags(args, kubectlExecValueFlags)
+	if j+1 >= len(args) {
+		return nil
+	}
+	return args[j+1:]
 }
 
 // chrootInner：NEWROOT 是第一个操作数，命令是第二个；只有 NEWROOT 没有
@@ -721,7 +766,70 @@ func destructive(inv bashguard.Invocation, depth int) bool {
 				return false
 			}
 		}
-		return slices.Contains(args, "delete")
+		if slices.Contains(args, "delete") {
+			return true
+		}
+		// --prune 把 apply 变成 delete（kit#31）：清单之外的现存资源会被
+		// 删除——删除路径不可逆，与 kubectl delete 同破坏面。hasFlag 认
+		// 等号拼写（--prune=true 载有 --prune）。
+		if hasFlag(args, "--prune") {
+			return true
+		}
+		// drain 的删数据形态（kit#31）：--delete-emptydir-data 把 emptyDir
+		// 随驱逐清空（不可逆），--force 删掉不受控制器管理的 pod。裸 drain
+		// 只是驱逐（可恢复），维持原判定。
+		if slices.Contains(args, "drain") && hasFlag(args, "--delete-emptydir-data", "--force") {
+			return true
+		}
+		return false
+	case name == "helm":
+		// 删整个 release（含其拥有的全部对象）与 kubectl delete 同破坏面
+		//（kit#30）。uninstall 的别名族（del / delete / un，helm 的 cobra
+		// Aliases）同档——换拼写换档就是 kit#23 那条免确认旁路。rollback
+		// 可逆、install/upgrade 落原判定，不在此列。
+		return slices.Contains(args, "uninstall") ||
+			slices.Contains(args, "delete") ||
+			slices.Contains(args, "del") ||
+			slices.Contains(args, "un")
+	case name == "truncate":
+		// 对任意文件的 truncate 本就是数据销毁原语（不可逆截断，kit#33）
+		// ——journalctl --vacuum（上面已判）的同意图旁路。全量入档（方案
+		// A，宁枉勿纵）：按路径收窄的清单换个路径照样销毁任意数据；与
+		// shred（恒不可逆）同族对齐。
+		return true
+	case name == "tee":
+		// 设备写入的第三条语法通道（kit#32）：dd 的 of= 在表里、重定向有
+		// dangerousRedirect，tee 此前免确认。目标操作数落在设备节点 ⇒
+		// 与 dd 同破坏面；普通文件目标维持原判定（tee /etc/hosts 与
+		// > /etc/hosts 同档）。
+		for _, a := range args {
+			if a != "-" && strings.HasPrefix(a, "-") {
+				continue // tee 的旗标不吃独立值（--output-error 只收内联值）
+			}
+			if isDeviceNode(a) {
+				return true
+			}
+		}
+		return false
+	case name == "crontab":
+		// 「怎么进来的机制」家族的调度入口（kit#34）：-r 删整张 crontab
+		//（不可逆，原调度内容丢失）；文件 / stdin 安装是持久化原语——改
+		// 调度 = 改「什么在什么时候以谁的身份跑」，与 useradd/passwd 同族。
+		// -e 交互态在 exec 通道里跑不通、-l 只读，都维持原判定。
+		if hasFlag(args, "-r") {
+			return true
+		}
+		if crontabOperand(args) {
+			return true // 文件 / `-`（stdin）安装
+		}
+		// 裸调用读 stdin = 安装形态；带 -l / -e 的无操作数形态照旧。
+		return !hasFlag(args, "-l", "-e")
+	case name == "ip":
+		// 与 iptables -F 同破坏面（kit#35）：flush 家族清空路由/地址/邻居
+		// 表（远程机器直接失联），link set down 断接口、link del 删接口。
+		// 对经堡垒机远程操作的执行面，断网类操作还把操作者自己锁在外面。
+		// 其余（单条 add/del、拉起接口）可逆，维持原判定。
+		return slices.Contains(args, "flush") || ipLinkCut(args)
 	case name == "docker", name == "podman":
 		for i, a := range args {
 			if a == "system" && i+1 < len(args) && args[i+1] == "prune" {
@@ -941,4 +1049,55 @@ func findExecBody(args []string) (cmd []string, consumed int, ok bool) {
 		cmd = append(cmd, a)
 	}
 	return nil, 0, false
+}
+
+// bareStdinInstalls 列出「裸调用读 stdin = 安装/写入形态」的命令：表机制
+// 表达不了「叶子命令裸跑即写」（见 classify 里的补丁注释），它们的裸调用
+// 不能顶着 READ 档走。
+var bareStdinInstalls = map[string]bool{
+	"crontab": true,
+}
+
+// bareStdinInstall reports whether a bare (zero-argument) invocation of one
+// of those commands appears in the command.
+func bareStdinInstall(calls []bashguard.Invocation) bool {
+	for _, c := range calls {
+		if c.Name == "" {
+			continue
+		}
+		if bareStdinInstalls[baseName(c.Name)] && len(c.Args) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// crontabOperand 报告参数里有没有文件/stdin 操作数——crontab 的安装形态。
+// `-` 是操作数（stdin 标记，不是 flag）；-u/--user 的值不是操作数。
+func crontabOperand(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-" {
+			return true // stdin 标记是操作数
+		}
+		if strings.HasPrefix(a, "-") {
+			if (a == "-u" || a == "--user") && i+1 < len(args) {
+				i++ // 限定用户的值不是操作数
+			}
+			continue
+		}
+		return true // 文件安装
+	}
+	return false
+}
+
+// ipLinkCut 报告这条 ip 调用是否断接口：`link set <dev> down`（拔网线）
+// 与 `link del|delete <dev>`（删接口）。ip 的语法是 OBJECT + 操作词，按
+// token 判，不按位置猜。
+func ipLinkCut(args []string) bool {
+	if !slices.Contains(args, "link") {
+		return false
+	}
+	return slices.Contains(args, "del") || slices.Contains(args, "delete") ||
+		(slices.Contains(args, "set") && slices.Contains(args, "down"))
 }
