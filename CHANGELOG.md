@@ -56,6 +56,16 @@
   DANGEROUS。只读侧补 route/addr/link/neigh 的 show/list/get 进只读表；
   单条 add/del、拉起接口可逆，维持原判定。
 
+### 依赖地板
+
+- **地板抬升**：`oekit/concurrency v0.32.0→v0.33.0`、`oekit/core v0.14.0→v0.14.2`、
+  `oekit/pkg v0.42.0→v0.44.0`、`oekit/bootstrap v0.7.5→v0.7.6`、`golang.org/x/crypto v0.58.0→v0.59.0`
+  （`go get -u` 全量追平，2026-11-12）。
+- **钉回**：`oagentkit/guardx 钉在 v0.23.4`——v0.24.3 仍带掩码/脱敏回归
+  （`secret_type=password` 这类**字段名**里含 secret 字样的无辜值被整值打码，
+  `TestTheCredentialWordList` / `TestTheProseFormDoesNotOverMask` 实红）。
+  上游修复掩码回归后再随（详见 oagentkit 侧钉回台账）。
+
 ## [0.12.5] - 2026-11-11
 ### 变更
 - **地板提升**：go 指令 1.26.0 → 1.27.0；`go get -u ./...` 全量升级后
