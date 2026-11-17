@@ -10,6 +10,15 @@
 ### 新增
 
 ### 修复
+- **只读模式对经 `reg.Add` 注册的工具整体失效**（#38，安全）：`reg.Add`
+  曾给每个注册工具无条件写 guardx 的 `AllowedTools` 白名单，而 guardx 的
+  白名单 break-glass 判定先于只读拦截——`JMS_READ_ONLY=1` 下带
+  `confirm=true` 的条件确认写工具（jmsx_exec / jmsx_run / jmsx_collect /
+  jmsx_collect_multi / jmsx_exec_multi / jmsx_bg_start）可直达 handler。
+  修法两层：注册不再写白名单（白名单回归「运维显式配置」语义）；kit 的
+  capability 段在只读模式下对非只读工具覆盖 gate 的 Allow，使「只读拒绝
+  一切写」成为结构性保证，不再依赖 guardx 判定序。补 6 个条件工具 + 5 个
+  无条件工具的只读×confirm 矩阵与默认模式对照测试。
 
 ## [0.13.0] - 2026-11-12
 ### 修复

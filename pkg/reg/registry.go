@@ -254,8 +254,14 @@ func New(impl *mcp.Implementation, opts Options) *Registry {
 		audit:      opts.OnRecord,
 		serverName: opts.ServerName,
 		gate: permgate.Service{
-			// Every tool the server exposes is on the whitelist by
-			// default; the deny list is what an operator fills in.
+			// No tool is on the whitelist by default. The whitelist is
+			// guardx's operator break-glass (#58): an explicit "this one
+			// tool is trusted even in read-only mode" decision. A registry
+			// that populated it for every registered tool turned that
+			// break-glass into a blanket allow that is checked BEFORE the
+			// gate's read-only branch — read-only mode then never saw the
+			// writes it was supposed to refuse (kit#38). Registration is
+			// not an operator decision, so it must not create trust.
 			AllowedTools: map[string]bool{},
 		},
 		registered: map[string]bool{},
@@ -305,7 +311,11 @@ func Add[In any](r *Registry, t *mcp.Tool, fn mcp.ToolHandlerFor[In, any]) {
 		input:  rawSchemaJSON(inputSchemaOf[In](t)),
 		output: rawSchemaJSON(t.OutputSchema),
 	}
-	r.gate.AllowedTools[t.Name] = true
+	// ⚠️ Do NOT add t.Name to r.gate.AllowedTools here. See New above and
+	// kit#38: registration used to whitelist every tool, and guardx checks
+	// the whitelist before its read-only branch, so JMS_READ_ONLY=1 silently
+	// allowed every conditional write (jmsx_exec & co) that arrived with
+	// confirm=true. The whitelist belongs to operators, not to registration.
 	// The answer's shape, resolved ONCE so the call can check itself
 	// against it.
 	var resolved *jsonschema.Resolved
@@ -566,6 +576,18 @@ func (r *Registry) stages(name string) []invoke.Stage {
 				AlwaysAsk: policy.Confirm != "",
 			}
 			d := r.gate.Check(ctx, name, argsFor(c.Args), r.mode, cap)
+			// The read-only contract is this package's promise, and it has
+			// to outrank a gate ALLOW. guardx checks its operator whitelist
+			// (break-glass, #58) BEFORE the read-only branch, so a write
+			// that is on that whitelist comes back Allow even in read-only
+			// mode. Registration no longer feeds the whitelist (kit#38);
+			// this override keeps the promise structural if an operator ever
+			// does populate it: in read-only mode a non-read tool never
+			// passes on an allow. A gate DENY keeps its own reason (the
+			// stronger rule drove it).
+			if d.Behavior != permgate.Deny && r.mode == permgate.ModeReadOnly && policy.Risk != jms.Risk_read {
+				return invoke.Verdict{Allow: false, Reason: "只读模式拦下写入: " + name}, nil
+			}
 			if d.Behavior == permgate.Deny {
 				return invoke.Verdict{Allow: false, Reason: d.Reason}, nil
 			}
