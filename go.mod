@@ -33,7 +33,7 @@ require (
 	github.com/oekit/core v0.14.2
 	github.com/oekit/kitex v0.7.18
 	github.com/oekit/logx v0.9.2
-	github.com/oekit/pkg v0.44.0
+	github.com/oekit/pkg v0.61.5
 	github.com/pquerna/otp v1.5.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
